@@ -1,0 +1,745 @@
+/* --- ROOT STYLES --- */
+:root {
+    /* Color Palette Dark Theme (Default) */
+    --page-bg: #000000; /* Fondo Negro para Tema Oscuro */
+    --page-bg-rgb: 0, 0, 0;
+    --border-color: #db0868;
+    --text-color: #ffffff; /* Texto Blanco para Tema Oscuro */
+    --title-color: #efc205;
+    --button-bg: #efc205;
+    --button-text: #000000;
+    /* Fonts */
+    --font-titles: 'Montserrat', sans-serif;
+    --font-paragraphs: 'Helvetica', sans-serif; /* Usado para párrafos y texto general */
+    --font-signatures: 'Dancing Script', cursive;
+    /* Border Radius */
+    --radius-sm: 8px;
+    --radius-md: 13px;
+    --radius-lg: 21px;
+    /* Borders & Shadows */
+    --border-width-standard: 3px;
+    /* Layout Dimensions */
+    --header-height: 76px; /* Altura del header para cálculos de layout */
+}
+body.light-theme {
+    --page-bg: #ffffff;
+    --page-bg-rgb: 255, 255, 255;
+    --border-color: #08afb7;
+    --text-color: #000000;
+}
+/* --- BASE STYLES --- */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+html, body, #root {
+    height: 100vh; /* Fallback for older browsers */
+    height: 100dvh; /* Dynamic Viewport Height for modern mobile browsers */
+    width: 100%;
+    overflow: hidden;
+}
+body {
+    background-color: var(--page-bg);
+    color: var(--text-color);
+    font-family: var(--font-paragraphs);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: background-color 0.3s, color 0.3s;
+}
+h1, h2, h3 {
+    font-family: var(--font-titles);
+    color: var(--title-color);
+    font-weight: 800;
+    text-align: center;
+    text-shadow: 2px 2px 2px rgba(0, 0, 0, 0.55); /* Sombra sutil direccional */
+}
+/* Alineación específica para los subtítulos en el menú de reglas */
+#info-menu h3, #info-menu h4 {
+    text-align: left;
+    padding: 0.5em 0;
+}
+/* --- LAYOUT & SCREENS --- */
+.app-container {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+}
+.screen {
+    display: none; /* Hidden by default */
+    width: 100%;
+    height: 100%;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0.3rem;
+    animation: fadeIn 0.5s ease-in-out;
+}
+.screen.active {
+    display: flex; /* Shown when active */
+}
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+.game-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem;
+    border-bottom: var(--border-width-standard) solid var(--border-color);
+    background-color: var(--page-bg);
+    width: 100%;
+    flex-shrink: 0;
+    position: relative; /* Necesario para que z-index funcione */
+    z-index: 30;        /* Superior al z-index del menú de informaciones */
+    transition: all 0.3s;
+}
+.game-header__logo {
+    width: 3.5rem; /* 56px */
+    height: 3.5rem; /* 56px */
+    border: 2px solid var(--text-color);
+    border-radius: 50%;
+    overflow: hidden;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: transform 0.2s, border-color 0.3s;
+    background-color: #fff; /* A background for the image container */
+}
+.game-header__logo:hover {
+    transform: scale(1.05);
+}
+.game-header__logo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.game-header__title-container {
+    flex-grow: 1;
+    text-align: center;
+    margin: 0 0.5rem; /* 8px */
+}
+.game-header__title {
+    font-size: clamp(1.8rem, 8vw, 3rem); /* Responsive font size */
+    line-height: 1;
+}
+.game-header__slogan {
+    font-weight: bold;
+    font-size: clamp(0.8rem, 2.6vw, 1.3rem);
+    margin-top: 0.21rem;
+    display: none; /* Oculto por defecto en pantallas pequeñas */
+}
+/* --- Pantalla de Inicio --- */
+.inicio-frame {
+    width: 90%;
+    height: 90%;
+    padding: 1rem;
+    border-radius: var(--radius-lg);
+    box-shadow: 0 0 15px 5px var(--border-color);
+    transition: box-shadow 0.3s, background-image 0.3s;
+    /* Flex layout para distribuir contenido */
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between; /* Pushes header, main, and footer apart */
+    gap: 1rem;
+    /* --- Estilos para la imagen de fondo --- */
+    background-image: url('https://i.imgur.com/Pb8muGl.jpeg'); /* Imagen Tema Oscuro */
+    background-size: contain;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+body.light-theme .inicio-frame {
+    background-image: url('https://i.imgur.com/bM2bsEd.jpeg'); /* Imagen Tema Claro */
+}
+/* Clase para eliminar el fondo en frames específicos */
+body .inicio-frame.no-background {
+    background-image: none;
+    background-color: transparent; /* Asegurarse de que el fondo sea transparente */
+}
+.inicio-header, .inicio-footer {
+    flex-shrink: 0; /* Prevent shrinking */
+}
+.inicio-header {
+    text-align: center;
+}
+.inicio-header h1 {
+    text-transform: uppercase;
+    font-size: clamp(2.1rem, 6vw, 3rem); /* Aumentar tamaño del h1 */
+}
+.inicio-header p { /* Añadir estilo para el eslogan */
+    font-size: clamp(0.8rem, 2.6vw, 1.3rem); /* Aumentar tamaño del eslogan */
+    margin-top: 0.3rem; /* Espacio entre h1 y p */
+}
+.inicio-main {
+    flex-grow: 1; /* Permite que esta área ocupe el espacio sobrante */
+    overflow-y: auto; /* Añade scroll si el contenido es muy alto */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1.5rem;
+    width: 100%;
+}
+.main-menu-buttons {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+    gap: clamp(1rem, 4vw, 1.5rem);
+}
+.inicio-footer {
+    width: 100%;
+    display: grid; /* Cambiar a grid */
+    grid-template-columns: repeat(5, 1fr); /* 5 columnas */
+    align-items: stretch;
+    /* Let parent frame handle padding */
+}
+.inicio-footer .button {
+    /* Estilos generales para los botones en el footer */
+    justify-self: stretch; /* Estirar para ocupar el ancho de la celda */
+}
+/* Posicionamiento en pantallas horizontales */
+@media (orientation: landscape) {
+    .inicio-footer .button:nth-child(1) { /* Botón "Juega en Local" */
+        grid-column: 2;
+    }
+    .inicio-footer .button:nth-child(2) { /* Botón "Juega en Línea" */
+        grid-column: 4;
+    }
+}
+/* Posicionamiento en pantallas verticales */
+@media (orientation: portrait) {
+    .inicio-footer {
+        grid-template-columns: 1fr; /* Una sola columna para apilar */
+        gap: 1rem; /* Espacio entre botones apilados */
+    }
+    .inicio-footer .button {
+        grid-column: 1; /* Todos en la única columna */
+        /* Centrar los botones en la columna central (que ahora es la única) */
+        justify-self: center;
+    }
+}
+/* --- RESPONSIVE DESIGN --- */
+/* Muestra el eslogan en pantallas más grandes (similar a sm:block de Tailwind) */
+@media (min-width: 640px) {
+    .game-header__slogan {
+        display: block;
+    }
+}
+/* Ajuste específico para Tablets y pantallas "casi cuadradas" */
+@media (min-aspect-ratio: 3/4) and (max-aspect-ratio: 4/3) {
+    .controls-panel__main-actions .button {
+        /* Reduce el relleno horizontal */
+        padding-left: clamp(10px, 2vw, 15px);
+        padding-right: clamp(10px, 2vw, 15px);
+    }
+}
+/* Oculta los precios en pantallas pequeñas para liberar espacio */
+@media (max-width: 639px) {
+    .board-cell .property-price {
+        display: none;
+    }
+}
+/* --- JUEGO STYLES --- */
+.game-screen-layout {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center; /* Centra los elementos en el espacio sobrante */
+    width: 100%;
+    height: 100%;
+    gap: 0.3rem;
+}
+.board-cell {
+    background-color: var(--page-bg);
+    border: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    font-size: clamp(6px, 1.3vmin, 12px);
+    padding: 2px;
+    position: relative;
+    overflow: hidden;
+    color: var(--text-color); /* Ensure text color matches theme */
+}
+.board-cell .property-name {
+    padding: 0 10px;
+    font-weight: normal;
+    white-space: pre-line; /* Interpreta saltos de línea (
+) */
+}
+.cell-text-wrapper {
+    transform: rotate(-45deg);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    width: 141%; /* sqrt(2) para ocupar la diagonal */
+    height: 141%;
+}
+.board-cell .property-price {
+    font-weight: normal;
+}
+.corner {
+    justify-content: center;
+    align-items: center;
+    font-weight: bold;
+}
+.center-logo {
+    grid-column: 2 / 9; /* Ajustado para grid de 9x9 */
+    grid-row: 2 / 9;    /* Ajustado para grid de 9x9 */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    border: 2px solid var(--border-color);
+    background-color: var(--page-bg);
+}
+/* --- Estilos Responsivos para el Layout del Juego --- */
+/* Para pantallas verticales y cuadradas */
+@media (max-aspect-ratio: 1/1) {
+    .game-screen-layout {
+        flex-direction: column;
+        justify-content: flex-start; /* Evita cortes superiores en pantallas muy pequeñas */
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+    .board-container, .controls-panel {
+        /* Calcula altura disponible real restando header y áreas seguras del sistema */
+        --safe-vertical-space: calc(100dvh - var(--header-height) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 1.5rem);
+        /* El tamaño es el menor entre el ancho disponible (94vw) y la mitad de la altura disponible */
+        --size: min(94vw, calc(var(--safe-vertical-space) / 2));
+        width: var(--size);
+        height: var(--size);
+    }
+}
+/* Para pantallas horizontales */
+@media (min-aspect-ratio: 1/1) { /* Usamos min-aspect-ratio para evitar solapamiento en 1/1 */
+    .game-screen-layout {
+        flex-direction: row;
+        align-items: center;
+    }
+    .board-container, .controls-panel {
+        /* FÓRMULA CORREGIDA HORIZONTAL: */
+        --safe-height: calc(94dvh - var(--header-height) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 1rem);
+        --safe-width: calc(94vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 3rem);
+        /* El tamaño es lo que quepa mejor: o la altura completa o la mitad del ancho */
+        --size: min(calc(var(--safe-width) / 2), var(--safe-height)); 
+        width: var(--size);
+        height: var(--size);
+    }
+}
+.board-container {
+    display: grid;
+    grid-template-columns: repeat(9, 1fr);
+    grid-template-rows: repeat(9, 1fr);
+    gap: 1px;
+    background-color: var(--border-color);
+    border: var(--border-width-standard) solid var(--border-color);
+    border-radius: clamp(var(--radius-sm), 3vmin, var(--radius-lg));
+    overflow: hidden;
+    position: relative;
+    flex-shrink: 0; /* Evita que el tablero se encoja */
+}
+.controls-panel {
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;            
+    justify-content: center; /* Centra el contenido y permite que el gap funcione mejor */
+    gap: clamp(0.25rem, 1.5vh, 0.75rem); /* Espaciado responsivo Reducido */
+    border-radius: var(--radius-lg);
+    border: var(--border-width-standard) solid var(--border-color);
+    flex-shrink: 0; /* Evita que el panel se encoja */
+}
+.controls-panel__main-actions {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    width: 100%;
+}
+.controls-panel__message {
+    font-size: clamp(0.6rem, 2.1vmin, 1.3rem);
+}
+.dice-area {
+    display: flex;
+    gap: clamp(0.5rem, 2vmin, 1rem);
+    align-items: center;
+    cursor: pointer;
+    transition: transform 0.2s, opacity 0.3s;
+    padding: 5px;
+    border-radius: var(--radius-sm);
+}
+.dice-area:hover:not(.disabled) {
+    transform: scale(1.1);
+    background-color: rgba(255, 255, 255, 0.1);
+}
+.dice-area.disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+    transform: none;
+    pointer-events: none;
+}
+.die {
+    width: clamp(34px, 10vmin, 50px);
+    height: clamp(34px, 10vmin, 50px);
+    padding: 3px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    gap: 4px;
+    background-color: #fff;
+    border-radius: var(--radius-sm);
+    border: 2px solid var(--text-color);
+    transition: background-color 0.3s, border-color 0.3s;
+}
+.dice-dot {
+    background-color: #000;
+    border-radius: 50%;
+    width: 100%;
+    height: 100%;
+    transition: background-color 0.3s;
+}
+/* TEMA CLARO: DADO NEGRO CON PUNTOS BLANCOS */
+body.light-theme .die {
+    background-color: #000;
+    border-color: #000;
+}
+body.light-theme .dice-dot {
+    background-color: #fff;
+}
+.player-stats-table {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: clamp(0.6rem, 2.2vmin, 0.9rem);
+}
+.player-stats-row, .player-stats-header {
+    display: grid;
+    grid-template-columns: 3fr 2fr 2fr;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.2rem 0.5rem;
+    width: 100%;
+}
+.player-stats-header {
+    font-weight: 800;
+    color: var(--title-color);
+    border-bottom: 2px solid var(--border-color);
+    padding-bottom: 0.4rem;
+    margin-bottom: 0.2rem;
+}
+.player-stats-row .col-nombre { text-align: left; }
+.player-stats-row .col-capital { text-align: right; }
+.player-stats-row .col-patrimonio { text-align: right; }
+.player-stats-header .col-nombre { text-align: left; }
+.player-stats-header .col-capital { text-align: center; }
+.player-stats-header .col-patrimonio { text-align: center; }
+/* --- UTILITIES --- */
+.button {
+    background-color: var(--button-bg);
+    color: var(--button-text);
+    font-family: var(--font-titles);
+    font-size: clamp(0.6rem, 1.3vw, 1.3rem);
+    font-weight: 800;
+    padding: clamp(8px, 2vw, 12px) clamp(15px, 4vw, 25px);
+    border: none;
+    border-radius: var(--radius-lg);
+    cursor: pointer;
+    transition: transform 0.2s;
+    text-align: center; /* Asegura que el texto se centre si se divide en varias líneas */
+    min-height: 2.5em; /* Aproximadamente dos líneas de texto con un line-height estándar */
+    white-space: normal; /* Permite que el texto se divida en líneas */
+    position: relative; /* Para la barra de carga */
+    overflow: hidden;    /* Para que la barra no se salga */
+}
+.button:hover {
+    transform: scale(1.05);
+}
+.button:disabled {
+    background-color: var(--button-bg);
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+.button.button--sell {
+    background-color: #DC3545; /* Red */
+    color: #ffffff;
+}
+.button.button--sell:hover {
+    background-color: #a71d2a; /* Darker Red */
+}
+.input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: 80%;
+    max-width: 400px;
+}
+.player-input-row {
+    display: flex;
+    flex-direction: row; /* Alinea los elementos en una fila */
+    align-items: center; /* Centra verticalmente los elementos */
+    gap: 0.75rem; /* Espacio entre el input y el checkbox */
+    width: 100%;
+}
+.text-input {
+    flex-grow: 1; /* El input de texto ocupa el espacio disponible */
+    padding: 8px;
+    border-radius: var(--radius-sm);
+    border: 2px solid var(--border-color);
+    background-color: var(--page-bg);
+    color: var(--text-color);
+    font-family: var(--font-paragraphs);
+    font-size: 1rem;
+    min-width: 100px; /* Evita que el input se encoja demasiado */
+    width: auto;
+}
+/* --- POPUP STYLES (MARCOS SEPARADOS RESPONSIVOS) --- */
+.popup-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(5px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    animation: fadeIn 0.3s ease-in-out;
+}
+/* Contenedor transparente para alinear los marcos */
+.popup-content {
+    background-color: transparent;
+    box-shadow: none;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    /* SE AJUSTA AUTOMÁTICAMENTE AL CONTENIDO PARA ANCLAR LA X CORRECTAMENTE */
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 100%;
+    position: relative; /* ANCHOR: Para botones flotantes */
+    pointer-events: none; /* Deja pasar clicks al fondo si hay espacios */
+    overflow: visible; /* CRITICO: Permite que el botón X salga del marco */
+}
+/* Estilos de los marcos (similares al tablero y panel) */
+.popup-image-container, .popup-controls-panel {
+    background-color: var(--page-bg);
+    border: var(--border-width-standard) solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 0 15px 5px var(--border-color);
+    overflow: hidden;
+    flex-shrink: 0;
+    position: relative;
+    pointer-events: auto; /* Reactiva clicks */
+}
+/* --- Estilos responsivos para el layout del POPUP --- */
+@media (max-aspect-ratio: 1/1) {
+    .popup-content {
+        flex-direction: column;
+    }
+    .popup-image-container, .popup-controls-panel {
+        --size: min(96vw, calc((96vh - var(--header-height) - 1rem) / 2)); 
+        width: var(--size);
+        height: var(--size);
+    }
+}
+@media (min-aspect-ratio: 1/1) {
+    .popup-content {
+        flex-direction: row;
+    }
+    .popup-image-container, .popup-controls-panel {
+        --size: min(calc((96vw - 3rem) / 2), calc(96vh - var(--header-height) - 1rem));
+        width: var(--size);
+        height: var(--size);
+    }
+}
+.popup-image-container img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.popup-controls-panel {
+    padding: 1.2rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center; 
+    gap: 1rem; 
+    overflow-y: auto;
+    scrollbar-width: thin; 
+    scrollbar-color: var(--border-color) transparent;
+}
+.popup-content h2 {
+    margin-bottom: 0; 
+    font-size: clamp(1.2rem, 4vmin, 1.8rem); 
+}
+/* --- Mejora de legibilidad para párrafos en Popups --- */
+.popup-controls-panel p, .popup-message-container {
+    font-size: clamp(0.85rem, 2.2vmin, 1.1rem);
+    line-height: 1.4;
+    text-align: center;
+}
+/* --- Lista de Precios Compacta --- */
+.price-list {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    font-size: clamp(0.7rem, 1.8vmin, 0.95rem);
+    width: 100%;
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid rgba(239, 194, 5, 0.3); /* Línea divisoria sutil */
+}
+.popup-actions {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+/* --- Info Menu (Bottom Sheet from Header) --- */
+#info-menu {
+    position: absolute;
+    top: 76px; /* Altura aproximada del header */
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(var(--page-bg-rgb, 0, 0, 0), 0.89); 
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 20; /* Inferior al z-index del header (30) */
+    transform: translateY(-130%); /* Oculto abajo, fuera de la vista */
+    transition: transform 0.35s ease-in-out;
+    padding: 1.5rem;
+    overflow-y: auto;
+}
+/* --- Mejora para el Menú de Información y Reglas --- */
+#info-menu p, #info-menu li {
+    font-size: clamp(0.9rem, 2.3vmin, 1.1rem);
+    line-height: 1.5;
+    margin-bottom: 0.8em;
+}
+#info-menu.open {
+    transform: translateY(0); /* Visible */
+}
+@media (orientation: landscape) {
+    #info-menu {
+        padding: 2.1rem 10%; /* 1.5rem arriba/abajo, 10% a los lados */
+    }
+    #info-menu p, #info-menu li {
+        text-align: justify;
+    }
+}
+/* --- Estilo específico para el botón "Pasar" como "X" --- */
+.popup-close-style-override {
+    --btn-size: clamp(28px, 8%, 45px); /* VARIABLE CENTRAL PARA CÁLCULOS */
+    position: absolute;
+    top: calc(var(--btn-size) / 2);   /* BAJA la mitad de su tamaño */
+    right: calc(var(--btn-size) / 2); /* MUEVE A LA IZQUIERDA la mitad de su tamaño */
+    width: var(--btn-size);
+    aspect-ratio: 1 / 1;
+    height: auto;
+    padding: 0;
+    min-height: 0;
+    z-index: 1010;
+    background-color: red;
+    color: #fff;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    font-size: clamp(14px, 3vmin, 20px);
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    pointer-events: auto; /* Permite clics aunque el padre los ignore */
+    box-shadow: 0 4px 8px rgba(0,0,0,0.5); /* Sombra para resaltar sobre el fondo */
+}
+.popup-close-style-override:hover {
+    background-color: darkred;
+    transform: scale(1.1);
+}
+/* --- ANIMACIÓN AFK (JUGADOR INACTIVO) --- */
+@keyframes afk-progress {
+    from { background-size: 0% 100%; }
+    to { background-size: 100% 100%; }
+}
+.afk-active {
+    background-image: linear-gradient(rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.4)); /* Capa semitransparente */
+    background-repeat: no-repeat;
+    background-position: left center;
+    animation-name: afk-progress;
+    animation-timing-function: linear;
+    animation-fill-mode: forwards;
+    /* La duración se pasa por inline style desde React */
+}
+/* --- OPTIMIZACIÓN LANDSCAPE (HEADER COMPACTO) --- */
+/* Se activa solo en horizontal y si la altura es menor a 600px */
+@media (orientation: landscape) and (max-height: 600px) {
+    :root {
+        --header-height: 40px;
+    }
+    /* 1. Reducir drásticamente la altura del header */
+    .game-header {
+        padding: 0.1rem 0.5rem;
+        height: 40px; /* Altura fija mínima */
+        border-bottom-width: 1px; /* Borde más fino */
+    }
+    /* 2. Logo miniatura */
+    .game-header__logo {
+        width: 32px;
+        height: 32px;
+        border-width: 1px;
+    }
+    /* 3. Ajuste de Título para que quepa en 40px */
+    .game-header__title {
+        font-size: 1.1rem;
+        margin: 0;
+        display: flex; /* Centrado perfecto */
+        align-items: center;
+        justify-content: center;
+    }
+    /* 4. ELIMINAR el slogan para ganar espacio */
+    .game-header__slogan {
+        display: none !important;
+    }
+    /* 5. Ajustar la posición del menú desplegable */
+    #info-menu {
+        top: 40px; /* Debe coincidir con la nueva altura */
+        padding: 1rem 5%; /* Menos padding interno */
+    }
+    /* 6. Ajustar título dentro del menú desplegable */
+    #info-menu h1 {
+        font-size: 1.5rem;
+        margin-bottom: 0.5rem;
+    }
+    /* 7. OCULTAR PRECIOS: En horizontal el espacio vertical es crítico */
+    .board-cell .property-price {
+        display: none;
+    }
+    /* 8. ALINEACIÓN Y CENTRADO DE BOTONES (Solo para este modo) */
+    .button {
+        display: flex;          /* Activa flexbox para control total */
+        justify-content: center; /* Centrado horizontal matemático */
+        align-items: center;     /* Centrado vertical matemático */
+        padding-left: 10px;      /* Elimina el exceso de espacio lateral */
+        padding-right: 10px;
+        font-size: 0.85rem;      /* Ajuste de lectura para pantallas bajas */
+    }
+}

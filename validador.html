@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Validador Oficial - La Gran Arica</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&display=swap');
+
+        :root {
+            --bg-color: #0a0a0a;
+            --panel-color: #1a1a1a;
+            --text-color: #e0e0e0;
+            --accent-color: #efc205; /* Dorado */
+            --success-color: #00ff88;
+            --warning-color: #ffcc00; /* Amarillo para alertas */
+            --error-color: #ff3333;
+            --border-color: #333;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Montserrat', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            background-color: var(--panel-color);
+            border: 2px solid var(--border-color);
+            border-radius: 10px;
+            padding: 40px;
+            width: 100%;
+            max-width: 600px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            text-align: center;
+        }
+
+        h1 {
+            color: var(--accent-color);
+            text-transform: uppercase;
+            margin-bottom: 10px;
+            font-size: 1.8rem;
+        }
+
+        p.subtitle {
+            font-size: 0.9rem;
+            color: #888;
+            margin-bottom: 30px;
+        }
+
+        .input-group {
+            margin-bottom: 25px;
+            position: relative;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 15px;
+            font-family: 'Courier Prime', monospace;
+            font-size: 1rem;
+            text-align: center;
+            background-color: #000;
+            border: 2px solid var(--border-color);
+            color: var(--accent-color);
+            border-radius: 5px;
+            box-sizing: border-box;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: var(--accent-color);
+            box-shadow: 0 0 10px rgba(239, 194, 5, 0.2);
+        }
+
+        button {
+            background-color: var(--accent-color);
+            color: #000;
+            border: none;
+            padding: 12px 30px;
+            font-family: 'Montserrat', sans-serif;
+            font-weight: 800;
+            font-size: 1rem;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: transform 0.2s, background-color 0.2s;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            background-color: #ffdb4d;
+        }
+
+        #result-area {
+            margin-top: 30px;
+            padding: 20px;
+            border-radius: 5px;
+            display: none;
+            text-align: left;
+            font-family: 'Courier Prime', monospace;
+            word-break: break-all;
+        }
+
+        .valid {
+            background-color: rgba(0, 255, 136, 0.1);
+            border: 1px solid var(--success-color);
+            color: var(--success-color);
+        }
+
+        .warning {
+            background-color: rgba(255, 204, 0, 0.1);
+            border: 1px solid var(--warning-color);
+            color: var(--warning-color);
+        }
+
+        .invalid {
+            background-color: rgba(255, 51, 51, 0.1);
+            border: 1px solid var(--error-color);
+            color: var(--error-color);
+        }
+
+        .data-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            border-bottom: 1px dashed #333;
+            padding-bottom: 5px;
+        }
+
+        .data-label {
+            color: #888;
+            font-weight: bold;
+        }
+
+        .data-value {
+            color: #fff;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Validador de Diplomas</h1>
+        <p class="subtitle">Sistema de Verificación Interna - La Gran Arica</p>
+
+        <div class="input-group">
+            <input type="text" id="codigo-input" placeholder="PEGUE EL CÓDIGO AQUÍ">
+        </div>
+
+        <button onclick="verificarCodigo()">VERIFICAR CÓDIGO</button>
+
+        <div id="result-area">
+            <!-- El resultado se inyectará aquí -->
+        </div>
+    </div>
+
+    <script>
+        // Configuración y Seguridad (Llave Maestra XOR)
+        const SECRET_KEY = "LGA-S3CRET-2026";
+        const applyXOR = (text, key) => {
+            return text.split('').map((char, i) => 
+                String.fromCharCode(char.charCodeAt(0) ^ key.charCodeAt(i % key.length))
+            ).join('');
+        };
+
+        const PREMIOS_DB = {
+            '1': 'Arica es Bacán La Tienda (10% Dcto)',
+            '2': 'Arica es Bacán Store (15% Dcto)',
+            '3': 'Tienda Arica es Bacán (20% Dcto)'
+        };
+
+        function verificarCodigo() {
+            const input = document.getElementById('codigo-input');
+            const resultArea = document.getElementById('result-area');
+            const rawCode = input.value.trim(); 
+
+            // 1. Limpieza Robusta
+            let cleanCode = rawCode.replace(/[-=\s]/g, '');
+
+            if (cleanCode.length < 6) {
+                mostrarError("Código demasiado corto o incompleto.");
+                return;
+            }
+
+            try {
+                // 2. Ingeniería Inversa
+                while (cleanCode.length % 4 !== 0) { cleanCode += '='; }
+                
+                const binaryString = atob(cleanCode);
+                const decodedUtf8 = decodeURIComponent(escape(binaryString));
+                const saltedString = decodedUtf8.split('').reverse().join('');
+
+                // 3. Descifrado con Llave Maestra
+                const originalString = applyXOR(saltedString, SECRET_KEY);
+
+                // 4. Análisis de la Cadena
+                const parts = originalString.split('|');
+
+                if (parts.length < 7) {
+                    throw new Error("Estructura de datos corrupta o clave incorrecta.");
+                }
+
+                // Extracción
+                const fechaRaw = parts[0]; 
+                const iniRaw = parts[1];   
+                const finRaw = parts[2];   
+                const jugadores = parts[3];
+                const idPremio = parts[4];
+                const patrocinador = parts[5];
+                const ganador = parts.slice(6).join('|'); 
+
+                // Reconstrucción de Formatos
+                const fechaLegible = `${fechaRaw.slice(0,2)}/${fechaRaw.slice(2,4)}/20${fechaRaw.slice(4,6)}`;
+                const iniLegible = `${iniRaw.slice(0,2)}:${iniRaw.slice(2,4)}`;
+                const finLegible = `${finRaw.slice(0,2)}:${finRaw.slice(2,4)}`;
+                
+                const descPremio = PREMIOS_DB[idPremio] ? PREMIOS_DB[idPremio].split('(')[1].replace(')', '') : "Premio Estándar";
+                const premioLegible = `${descPremio}`;
+
+                const partesFecha = fechaLegible.split('/');
+                let validez = "Desconocida";
+                if(partesFecha.length === 3) {
+                    const d = new Date(`${partesFecha[2]}-${partesFecha[1]}-${partesFecha[0]}`);
+                    d.setDate(d.getDate() + 3);
+                    validez = d.toLocaleDateString('es-CL');
+                }
+
+                // 5. Cálculo de Duración e Integridad Lógica
+                const h1 = parseInt(iniRaw.slice(0, 2));
+                const m1 = parseInt(iniRaw.slice(2, 4));
+                const h2 = parseInt(finRaw.slice(0, 2));
+                const m2 = parseInt(finRaw.slice(2, 4));
+                
+                let minutosInicio = h1 * 60 + m1;
+                let minutosFin = h2 * 60 + m2;
+                let duracionPartida = minutosFin - minutosInicio;
+                if (duracionPartida < 0) duracionPartida += 1440; 
+
+                const esSospechoso = (duracionPartida < 5) || (parseInt(jugadores) <= 1);
+                
+                let estadoClase = 'valid';
+                let tituloResultado = '✓ CÓDIGO AUTÉNTICO';
+                let avisoHtml = '';
+
+                if (esSospechoso) {
+                    estadoClase = 'warning';
+                    tituloResultado = '⚠ CÓDIGO SOSPECHOSO';
+                    avisoHtml = `<p style="margin: 10px 0; font-weight: bold; font-size: 0.85rem;">AVISO: Esta partida no cumple los requisitos mínimos de tiempo o jugadores para ser considerada real.</p><hr style="border: 0; border-top: 1px dashed var(--warning-color); margin-bottom: 10px;">`;
+                }
+
+                resultArea.className = estadoClase;
+                resultArea.style.display = 'block';
+                resultArea.innerHTML = `
+                    <h3 style="margin-top:0;">${tituloResultado}</h3>
+                    ${avisoHtml}
+                    <div class="data-row"><span class="data-label">Ganador:</span> <span class="data-value">${ganador}</span></div>
+                    <div class="data-row"><span class="data-label">Patrocinador:</span> <span class="data-value" style="color:#efc205">${patrocinador}</span></div>
+                    <div class="data-row"><span class="data-label">Premio:</span> <span class="data-value">${premioLegible}</span></div>
+                    <div class="data-row"><span class="data-label">Válido Hasta:</span> <span class="data-value">${validez}</span></div>
+                    <hr style="border-color:#333; border-style:dashed;">
+                    <div class="data-row"><span class="data-label">Fecha Juego:</span> <span class="data-value">${fechaLegible}</span></div>
+                    <div class="data-row"><span class="data-label">Horario:</span> <span class="data-value">${iniLegible} - ${finLegible}</span></div>
+                    <div class="data-row"><span class="data-label">Jugadores:</span> <span class="data-value">${jugadores}</span></div>
+                `;
+
+            } catch (error) {
+                console.error(error);
+                mostrarError("CÓDIGO INVÁLIDO O ADULTERADO.<br>No coincide con los registros.");
+            }
+        }
+
+        function mostrarError(mensaje) {
+            const resultArea = document.getElementById('result-area');
+            resultArea.className = 'invalid';
+            resultArea.style.display = 'block';
+            resultArea.innerHTML = `
+                <h3 style="margin-top:0; color: #ff3333;">⚠ ERROR DE VALIDACIÓN</h3>
+                <p>${mensaje}</p>
+            `;
+        }
+    </script>
+</body>
+</html>

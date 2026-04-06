@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Certificado - Magnate Ariqueño</title>
+    <!-- Librería para captura de pantalla -->
+    <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap');
+
+        :root {
+            --dm-fondo: #000000;
+            --dm-titulos: #efc205;
+            --dm-parrafos: #ffffff;
+            --dm-bordes: #db0868;
+            
+            --lm-fondo: #ffffff;
+            --lm-titulos: #efc205;
+            --lm-parrafos: #000000;
+            --lm-bordes: #08afb7;
+
+            --color-fondo: var(--dm-fondo);
+            --color-titulos: var(--dm-titulos);
+            --color-parrafos: var(--dm-parrafos);
+            --color-bordes: var(--dm-bordes);
+        }
+
+        body.light-mode {
+            --color-fondo: var(--lm-fondo);
+            --color-titulos: var(--lm-titulos);
+            --color-parrafos: var(--lm-parrafos);
+            --color-bordes: var(--lm-bordes);
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Helvetica', 'Arial', sans-serif;
+            background-color: var(--color-fondo);
+            color: var(--color-parrafos);
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.3s;
+        }
+
+        .diploma-container {
+            position: relative;
+            background-color: var(--color-fondo);
+            width: 90%;
+            max-width: 900px;
+            aspect-ratio: 1.414 / 1; 
+            margin: 20px;
+            padding: 10px;
+            box-sizing: border-box;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .diploma-frame {
+            width: 100%;
+            height: 100%;
+            border: 8px solid var(--color-titulos);
+            outline: 2px solid var(--color-bordes);
+            outline-offset: -12px;
+            padding: 5% 8%;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            text-align: center;
+            background-image: radial-gradient(circle at center, rgba(239, 194, 5, 0.05) 0%, rgba(0,0,0,0) 70%);
+        }
+
+        h1 {
+            font-family: 'Montserrat', sans-serif;
+            font-weight: 800;
+            font-size: clamp(1.5rem, 5vw, 3.5rem);
+            color: var(--color-titulos);
+            margin: 0;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+            line-height: 1.1;
+        }
+
+        h2 {
+            font-family: 'Montserrat', sans-serif;
+            font-weight: 800;
+            font-size: clamp(1rem, 3vw, 2rem);
+            color: var(--color-bordes);
+            margin: 10px 0 20px 0;
+            text-transform: uppercase;
+        }
+
+        p.cuerpo {
+            font-family: 'Helvetica', sans-serif;
+            font-size: clamp(0.8rem, 2vw, 1.2rem);
+            line-height: 1.6;
+            margin: 10px 0;
+            max-width: 80%;
+        }
+
+        .premio-destacado {
+            font-weight: bold;
+            font-size: 1.2em;
+            color: var(--color-titulos);
+            background-color: rgba(255,255,255,0.1);
+            padding: 5px 15px;
+            border-radius: 5px;
+            display: inline-block;
+            margin: 10px 0;
+        }
+
+        .firma-container {
+            margin-top: auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+        }
+
+        .firma {
+            font-family: 'Dancing Script', cursive;
+            font-size: clamp(1.5rem, 4vw, 2.5rem);
+            color: var(--color-parrafos);
+            margin-bottom: 5px;
+            transform: rotate(-2deg);
+        }
+
+        .linea-firma {
+            width: 50%;
+            height: 2px;
+            background-color: var(--color-parrafos);
+            margin-bottom: 5px;
+        }
+
+        .codigo-validacion {
+            font-family: 'Courier New', monospace;
+            font-size: clamp(0.6rem, 1.5vw, 0.9rem);
+            color: var(--color-parrafos);
+            opacity: 0.7;
+            margin-top: 10px;
+            border: 1px dashed var(--color-bordes);
+            padding: 5px 10px;
+        }
+
+        .acciones {
+            margin: 20px;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .btn {
+            background-color: var(--color-bordes);
+            color: #fff;
+            border: none;
+            padding: 12px 25px;
+            font-family: 'Montserrat', sans-serif;
+            font-weight: 800;
+            font-size: 1rem;
+            cursor: pointer;
+            border-radius: 50px;
+            text-decoration: none;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 15px var(--color-bordes);
+        }
+
+        .btn-secundario {
+            background-color: transparent;
+            border: 2px solid var(--color-parrafos);
+            color: var(--color-parrafos);
+        }
+
+        @media (orientation: portrait) {
+            .diploma-container {
+                aspect-ratio: auto;
+                min-height: 70vh;
+                width: 95%;
+            }
+            .diploma-frame {
+                justify-content: space-evenly;
+            }
+        }
+
+        #zona-captura {
+            background-color: var(--color-fondo);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="diploma-container" id="zona-captura">
+        <div class="diploma-frame">
+            <div>
+                <h1>Certificado Oficial</h1>
+                <h2>Magnate Ariqueño</h2>
+            </div>
+
+            <p class="cuerpo">
+                Por haber demostrado habilidades excepcionales en estrategia y negociación, 
+                conquistando el comercio local de Arica.
+            </p>
+
+            <p class="cuerpo">
+                La organización de <strong>La Gran Arica</strong> otorga al portador de este documento un:
+            </p>
+
+            <div class="premio-destacado" id="texto-descuento">
+                --% DE DESCUENTO
+            </div>
+
+            <p class="cuerpo" style="font-size: 0.8em; opacity: 0.9;" id="texto-patrocinio">
+                Válido para canjear en productos oficiales de "Arica es Bacán".
+            </p>
+
+            <div class="firma-container">
+                <div class="firma">Arica es Bacán</div>
+                <div class="linea-firma"></div>
+                <div class="codigo-validacion" id="codigo-hash">
+                    GENERANDO CÓDIGO...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="acciones">
+        <button class="btn" onclick="descargarCertificado()">Descargar Certificado</button>
+        <a href="./index.html" class="btn btn-secundario">Volver al Juego</a>
+        <button class="btn btn-secundario" onclick="toggleTheme()">Cambiar Tema</button>
+    </div>
+
+    <script>
+        // 1. Configuración y Seguridad (Llave Maestra XOR)
+        const SECRET_KEY = "LGA-S3CRET-2026";
+        const applyXOR = (text, key) => {
+            return text.split('').map((char, i) => 
+                String.fromCharCode(char.charCodeAt(0) ^ key.charCodeAt(i % key.length))
+            ).join('');
+        };
+
+        const params = new URLSearchParams(window.location.search);
+        const token = params.get('data');
+
+        let datosJuego = {
+            g: "Magnate Ariqueño",
+            j: "1",
+            f: new Date().toLocaleDateString('es-CL'),
+            t_s: "00:00:00",
+            t_e: "00:00:00"
+        };
+
+        if (token) {
+            try {
+                // Descifrado de datos provenientes del juego (index.html)
+                const encrypted = decodeURIComponent(atob(token));
+                const jsonString = applyXOR(encrypted, SECRET_KEY);
+                const parsed = JSON.parse(jsonString);
+                datosJuego = { ...datosJuego, ...parsed };
+            } catch (error) {
+                console.error("Error al descifrar datos del juego:", error);
+            }
+        }
+
+        document.querySelector('h2').innerText = datosJuego.g;
+
+        // 2. Base de Datos de Premios
+        const premiosPosibles = [
+            { id: 1, nombre: "Arica es Bacán La Tienda", premio: "10% DE DESCUENTO", probabilidad: 0.5 },
+            { id: 2, nombre: "Arica es Bacán Store", premio: "15% DE DESCUENTO", probabilidad: 0.3 },
+            { id: 3, nombre: "Tienda Arica es Bacán", premio: "20% DE DESCUENTO", probabilidad: 0.2 }
+        ];
+
+        function sortearPremio(premios) {
+            const random = Math.random();
+            let sumaProbabilidad = 0;
+            for (const item of premios) {
+                sumaProbabilidad += item.probabilidad;
+                if (random < sumaProbabilidad) return item;
+            }
+            return premios[0];
+        }
+
+        const premioGanado = sortearPremio(premiosPosibles);
+        document.getElementById('texto-descuento').innerText = `${premioGanado.premio}`;
+        document.getElementById('texto-patrocinio').innerHTML = 
+            `Válido para canjear en productos oficiales de "<strong>${premioGanado.nombre}</strong>".`;
+
+        // 3. Generación del Código Único (Cifrado XOR)
+        function generarCodigoUnico(datos, premio) {
+            const cleanDate = (d) => {
+                const nums = d.replace(/\D/g, ''); 
+                if (nums.length >= 8) {
+                    return nums.slice(0, 4) + nums.slice(6, 8); 
+                }
+                return nums.slice(0, 6);
+            };
+            const cleanTime = (t) => t.replace(/\D/g, '').slice(0, 4);
+
+            const fechaCorta = cleanDate(datos.f);
+            const iniCorto = cleanTime(datos.t_s);
+            const finCorto = cleanTime(datos.t_e);
+            const jugCorto = datos.j.toString();
+            const idPremio = premio.id.toString();
+            
+            // Estructura Raw: FECHA|INI|FIN|JUG|ID|PATROCINADOR|GANADOR
+            const rawString = `${fechaCorta}|${iniCorto}|${finCorto}|${jugCorto}|${idPremio}|${premio.nombre}|${datos.g}`;
+            
+            // Cifrado Final para el Certificado
+            const saltedString = applyXOR(rawString, SECRET_KEY);
+            const reversed = saltedString.split('').reverse().join('');
+            
+            const utf8Bytes = encodeURIComponent(reversed).replace(/%([0-9A-F]{2})/g,
+                function(match, p1) {
+                    return String.fromCharCode('0x' + p1);
+                });
+
+            const encoded = btoa(utf8Bytes).replace(/=/g, ''); 
+            return encoded.match(/.{1,8}/g).join('-');
+        }
+
+        const codigoFinal = generarCodigoUnico(datosJuego, premioGanado);
+
+        function calcularValidez(fechaStr) {
+            const partes = fechaStr.split(/[\/\-]/);
+            if(partes.length === 3) {
+                const d = new Date(`${partes[2]}-${partes[1]}-${partes[0]}`); 
+                d.setDate(d.getDate() + 1); 
+                return d.toLocaleDateString('es-CL');
+            }
+            return fechaStr;
+        }
+
+        const validoHasta = calcularValidez(datosJuego.f);
+        document.getElementById('codigo-hash').innerHTML = 
+            `VÁLIDO HASTA: ${validoHasta} <br> CÓDIGO: ${codigoFinal}`;
+
+        // 4. Funcionalidad de Descarga
+        function descargarCertificado() {
+            const elemento = document.getElementById("zona-captura");
+            const opciones = {
+                scale: 2, 
+                useCORS: true, 
+                backgroundColor: getComputedStyle(document.body).getPropertyValue('--color-fondo')
+            };
+
+            html2canvas(elemento, opciones).then(canvas => {
+                const link = document.createElement('a');
+                link.download = `Certificado-Magnate-Arica-${codigoFinal}.png`;
+                link.href = canvas.toDataURL("image/png");
+                link.click();
+            });
+        }
+
+        function toggleTheme() {
+            document.body.classList.toggle('light-mode');
+        }
+    </script>
+</body>
+</html>
