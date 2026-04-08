@@ -21,4 +21,4 @@ jobs:
         run: |
           git config --global user.name "LGA Sync Bot"
           git config --global user.email "bot@aricaesbacan.cl"
-          git push -f https://mabychile:$\{{ env.CLIENT_TOKEN \}@github.com/lgaaricaesbacan/La_Gran_Arica.git master
+          git push -f "https://x-access-token:$CLIENT_TOKEN@github.com/lgaaricaesbacan/La_Gran_Arica.git" master
