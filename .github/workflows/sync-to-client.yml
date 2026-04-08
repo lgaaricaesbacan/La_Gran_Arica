@@ -1,4 +1,4 @@
-﻿name: Sincronizacion Automatizada LGA
+name: Sincronizacion Automatizada LGA
 
 on:
   push:
@@ -17,8 +17,8 @@ jobs:
 
       - name: Espejar en repositorio del cliente
         env:
-          CLIENT_TOKEN: $\{{ secrets.CLIENT_GITHUB_TOKEN \}}
+          CLIENT_TOKEN: ${{ secrets.CLIENT_GITHUB_TOKEN }}
         run: |
           git config --global user.name "LGA Sync Bot"
           git config --global user.email "bot@aricaesbacan.cl"
-          git push -f "https://x-access-token:$CLIENT_TOKEN@github.com/lgaaricaesbacan/La_Gran_Arica.git" master
+          git push -f "https://x-access-token:${CLIENT_TOKEN}@github.com/lgaaricaesbacan/La_Gran_Arica.git" master
