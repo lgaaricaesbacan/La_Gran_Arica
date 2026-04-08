@@ -27,6 +27,8 @@
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Supabase SDK para funcionalidades Multijugador -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
     <div id="root"></div>
@@ -50,6 +52,11 @@
         }
     </script>
     <script type="text/babel">
+        /* --- CONFIGURACIÓN DE SUPABASE --- */
+        const SUPABASE_URL = 'https://obyzkatytlxltmldclno.supabase.co'; 
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9ieXprYXR5dGx4bHRtbGRjbG5vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1Njk1OTIsImV4cCI6MjA5MTE0NTU5Mn0.fHOlgNiGmeKAMOdydM1RyT77bq_MlDvzURaGgMayJZY';
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
         /* --- DATABASE (CONFIGURACIÓN CENTRAL DEL JUEGO) --------------------------- */
         const GAME_DATA = {
             /* Perfiles de Inteligencia Artificial (Fundadoras AeB) */
@@ -532,6 +539,22 @@
         });
         const PantallaInicio = React.memo(({ activeScreen, setActiveScreen }) => {
             if (activeScreen !== 'inicio') return null;
+
+            const handleOnlineLogin = async () => {
+                try {
+                    const { data, error } = await supabase.auth.signInWithOAuth({
+                        provider: 'google',
+                        options: {
+                            redirectTo: window.location.origin
+                        }
+                    });
+                    if (error) throw error;
+                } catch (error) {
+                    console.error("Error al iniciar sesión:", error.message);
+                    alert("No pudimos conectar con Google. Verifica tu conexión.");
+                }
+            };
+
             return (
                 <div id="inicio" className="screen active">
                     <div className="inicio-frame">
@@ -541,7 +564,7 @@
                         <main className="inicio-main"></main>
                         <footer className="inicio-footer">
                             <button className="button" onClick={() => setActiveScreen('setupLocal')}>Juega en Local</button>
-                            <button className="button" onClick={() => alert('Próximamente: Juego Online')}>Juega en Línea</button>
+                            <button className="button" onClick={handleOnlineLogin}>Juega en Línea</button>
                         </footer>
                     </div>
                 </div>
