@@ -537,10 +537,14 @@
                 </div>
             );
         });
-        const PantallaInicio = React.memo(({ activeScreen, setActiveScreen }) => {
+        const PantallaInicio = React.memo(({ activeScreen, setActiveScreen, user, onLogout }) => {
             if (activeScreen !== 'inicio') return null;
 
             const handleOnlineLogin = async () => {
+                if (user) {
+                    setActiveScreen('lobbyOnline');
+                    return;
+                }
                 try {
                     const { data, error } = await supabase.auth.signInWithOAuth({
                         provider: 'google',
@@ -560,11 +564,103 @@
                     <div className="inicio-frame">
                         <header className="inicio-header">
                             <h1>¡La Gran Arica!</h1>
+                            {user && (
+                                <div className="user-badge">
+                                    <img src={user.user_metadata.avatar_url} alt="Foto" />
+                                    <span>Hola, {user.user_metadata.full_name.split(' ')[0]}</span>
+                                    <button className="logout-mini" onClick={onLogout}>Cerrar</button>
+                                </div>
+                            )}
                         </header>
                         <main className="inicio-main"></main>
                         <footer className="inicio-footer">
                             <button className="button" onClick={() => setActiveScreen('setupLocal')}>Juega en Local</button>
-                            <button className="button" onClick={handleOnlineLogin}>Juega en Línea</button>
+                            <button className="button" onClick={handleOnlineLogin}>
+                                {user ? 'Entrar al Lobby Online' : 'Juega en Línea'}
+                            </button>
+                        </footer>
+                    </div>
+                </div>
+            );
+        });
+
+        const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user }) => {
+            const [roomCode, setRoomCode] = React.useState('');
+            const [loading, setLoading] = React.useState(false);
+
+            if (activeScreen !== 'lobbyOnline') return null;
+
+            const createRoom = async () => {
+                setLoading(true);
+                const code = Math.random().toString(36).substring(2, 6).toUpperCase();
+                try {
+                    // 1. Crear la sala
+                    const { data: room, error: roomError } = await supabase
+                        .from('rooms')
+                        .insert([{ code, status: 'waiting' }])
+                        .select()
+                        .single();
+
+                    if (roomError) throw roomError;
+
+                    // 2. Unirse a la sala como jugador 1
+                    const { error: playerError } = await supabase
+                        .from('players_online')
+                        .insert([{
+                            room_id: room.id,
+                            user_id: user.id,
+                            name: user.user_metadata.full_name,
+                            photo: user.user_metadata.avatar_url,
+                            color: GAME_DATA.PLAYERS.COLORS[0],
+                            is_ready: true
+                        }]);
+
+                    if (playerError) throw playerError;
+
+                    alert(`Sala creada con éxito. Código: ${code}`);
+                    // Aquí luego navegaremos a la pantalla de espera de la sala
+                } catch (error) {
+                    console.error("Error al crear sala:", error.message);
+                    alert("No se pudo crear la sala.");
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div id="lobbyOnline" className="screen active">
+                    <div className="inicio-frame no-background">
+                        <header className="inicio-header">
+                            <h1>Multijugador Online</h1>
+                        </header>
+                        <main className="inicio-main">
+                            <div className="lobby-actions">
+                                <div className="action-card">
+                                    <h3>Crear Nueva Partida</h3>
+                                    <p>Se generará un código para que tus amigos se unan.</p>
+                                    <button className="button" onClick={createRoom} disabled={loading}>
+                                        {loading ? 'Creando...' : 'Crear Sala'}
+                                    </button>
+                                </div>
+                                <div className="divider-lobby">O</div>
+                                <div className="action-card">
+                                    <h3>Unirse a Partida</h3>
+                                    <input 
+                                        type="text" 
+                                        placeholder="CÓDIGO (4 letras)" 
+                                        maxLength="4" 
+                                        value={roomCode}
+                                        onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+                                        className="text-input"
+                                    />
+                                    <button className="button" onClick={() => alert('Próximamente: Unirse')}>
+                                        Entrar a Sala
+                                    </button>
+                                </div>
+                            </div>
+                        </main>
+                        <footer className="inicio-footer">
+                            <button className="button" onClick={() => setActiveScreen('inicio')}>Regresar</button>
                         </footer>
                     </div>
                 </div>
@@ -762,9 +858,30 @@
             );
         };
         const App = () => {
+            const [user, setUser] = React.useState(null);
             const [activeScreen, setActiveScreen] = React.useState('inicio'); 
             const [centralImages, setCentralImages] = React.useState([]);
             const [currentSponsorIndex, setCurrentSponsorIndex] = React.useState(0);
+
+            // Escuchar cambios en la sesión de Supabase
+            React.useEffect(() => {
+                // Verificar sesión actual al cargar
+                supabase.auth.getSession().then(({ data: { session } }) => {
+                    setUser(session?.user ?? null);
+                });
+
+                // Escuchar cambios (login/logout)
+                const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+                    setUser(session?.user ?? null);
+                });
+
+                return () => subscription.unsubscribe();
+            }, []);
+
+            const handleLogout = async () => {
+                await supabase.auth.signOut();
+                alert("Sesión cerrada correctamente.");
+            };
             React.useEffect(() => {
                 const { ASSETS, BOARD } = GAME_DATA;
                 const { CENTRAL_IMAGES } = ASSETS;

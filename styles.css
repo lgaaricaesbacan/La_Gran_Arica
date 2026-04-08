@@ -743,3 +743,90 @@ body.light-theme .dice-dot {
         font-size: 0.85rem;      /* Ajuste de lectura para pantallas bajas */
     }
 }
+
+/* --- ESTILOS PARA MULTIJUGADOR ONLINE --- */
+
+.user-badge {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(255, 255, 255, 0.1);
+    padding: 5px 15px;
+    border-radius: 50px;
+    margin-top: 10px;
+    border: 1px solid var(--accent-color);
+    width: fit-content;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.user-badge img {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 1px solid white;
+}
+
+.user-badge span {
+    font-size: 0.9rem;
+    font-weight: bold;
+    color: var(--text-color);
+}
+
+.logout-mini {
+    background: none;
+    border: none;
+    color: var(--accent-color);
+    font-size: 0.7rem;
+    text-decoration: underline;
+    cursor: pointer;
+    padding: 0;
+    margin-left: 5px;
+}
+
+.lobby-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    width: 100%;
+    max-width: 400px;
+    margin: 0 auto;
+}
+
+.action-card {
+    background: rgba(var(--page-bg-rgb), 0.8);
+    padding: 20px;
+    border-radius: 15px;
+    border: 2px solid var(--accent-color);
+    text-align: center;
+    transition: transform 0.2s;
+}
+
+.action-card:hover {
+    transform: translateY(-5px);
+}
+
+.action-card h3 {
+    margin-bottom: 10px;
+    color: var(--accent-color);
+}
+
+.action-card p {
+    font-size: 0.8rem;
+    margin-bottom: 15px;
+    opacity: 0.8;
+}
+
+.divider-lobby {
+    font-weight: bold;
+    color: var(--accent-color);
+    text-shadow: 0 0 10px rgba(0,0,0,0.5);
+    text-align: center;
+}
+
+.lobby-actions .text-input {
+    margin-bottom: 15px;
+    text-align: center;
+    letter-spacing: 5px;
+    font-weight: bold;
+}
