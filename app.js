@@ -583,8 +583,6 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
     const [matchmakingAttempted, setMatchmakingAttempted] = React.useState(false);
     const [showJoinByCode, setShowJoinByCode] = React.useState(false);
 
-    if (activeScreen !== 'lobbyOnline') return null;
-
     // Función para iniciar partida local con IA aleatoria
     const startLocalGameWithAI = () => {
         const randomAI = GAME_DATA.AI_PROFILES[Math.floor(Math.random() * GAME_DATA.AI_PROFILES.length)];
@@ -2112,6 +2110,11 @@ const App = () => {
                 <source src="https://dbtabernadematrix.my.canva.site/applause-cheer-sound-ii/_assets/audio/63b57af81c324cef6722030d2aa132fb.m4a" type="audio/mp4" />
             </audio>
         </div>
+    );
+};
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+ </div>
     );
 };
 const root = ReactDOM.createRoot(document.getElementById('root'));
