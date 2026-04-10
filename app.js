@@ -500,7 +500,7 @@ const Tablero = React.memo(({ players, properties, centralImage, onCellClick }) 
         </div>
     );
 });
-const PantallaInicio = React.memo(({ activeScreen, setActiveScreen, user, onLogout }) => {
+const PantallaInicio = React.memo(({ activeScreen, setActiveScreen, user, onLogout, oauthProcessing }) => {
     if (activeScreen !== 'inicio') return null;
 
     const handleOnlineLogin = async () => {
@@ -509,10 +509,12 @@ const PantallaInicio = React.memo(({ activeScreen, setActiveScreen, user, onLogo
             return;
         }
         try {
+            // Usar URL completa actual para redirección correcta
+            const currentUrl = window.location.href.split('#')[0]; // Quitar cualquier hash previo
             const { data, error } = await supabase.auth.signInWithOAuth({
                 provider: 'google',
                 options: {
-                    redirectTo: window.location.origin
+                    redirectTo: currentUrl
                 }
             });
             if (error) throw error;
@@ -538,8 +540,8 @@ const PantallaInicio = React.memo(({ activeScreen, setActiveScreen, user, onLogo
                 <main className="inicio-main"></main>
                 <footer className="inicio-footer">
                     <button className="button" onClick={() => setActiveScreen('setupLocal')}>Juega en Local</button>
-                    <button className="button" onClick={handleOnlineLogin}>
-                        {user ? 'Entrar al Lobby Online' : 'Juega en Línea'}
+                    <button className="button" onClick={handleOnlineLogin} disabled={oauthProcessing}>
+                        {oauthProcessing ? 'Procesando...' : (user ? 'Entrar al Lobby Online' : 'Juega en Línea')}
                     </button>
                 </footer>
             </div>
@@ -547,17 +549,160 @@ const PantallaInicio = React.memo(({ activeScreen, setActiveScreen, user, onLogo
     );
 });
 
-const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user }) => {
+// Función helper para insertar jugador (maneja BD con o sin campo email)
+const insertPlayer = async (supabase, playerData) => {
+    try {
+        // Intentar insertar con email primero
+        const { error } = await supabase
+            .from('players_online')
+            .insert([playerData]);
+
+        if (error && error.message && error.message.includes('email')) {
+            // Si falla por email, intentar sin email
+            const { email, ...dataWithoutEmail } = playerData;
+            const { error: error2 } = await supabase
+                .from('players_online')
+                .insert([dataWithoutEmail]);
+            return { error: error2 };
+        }
+
+        return { error };
+    } catch (e) {
+        return { error: e };
+    }
+};
+
+const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, onStartGame }) => {
     const [roomCode, setRoomCode] = React.useState('');
-    const [loading, setLoading] = React.useState(false);
+    const [loading, setLoading] = React.useState(true);
+    const [loadingMessage, setLoadingMessage] = React.useState('Buscando partidas disponibles...');
+    const [currentRoom, setCurrentRoom] = React.useState(null);
+    const [players, setPlayers] = React.useState([]);
+    const [timeLeft, setTimeLeft] = React.useState(180); // 3 minutos en segundos
+    const [copied, setCopied] = React.useState(false);
+    const [matchmakingAttempted, setMatchmakingAttempted] = React.useState(false);
+    const [showJoinByCode, setShowJoinByCode] = React.useState(false);
 
     if (activeScreen !== 'lobbyOnline') return null;
 
-    const createRoom = async () => {
-        setLoading(true);
+    // Función para iniciar partida local con IA aleatoria
+    const startLocalGameWithAI = () => {
+        const randomAI = GAME_DATA.AI_PROFILES[Math.floor(Math.random() * GAME_DATA.AI_PROFILES.length)];
+        const userName = user.user_metadata?.full_name || 'Jugador';
+        const userEmail = user.email || user.user_metadata?.email || '';
+
+        // Guardar email para análisis
+        console.log('Jugador redirigido a local:', { name: userName, email: userEmail, reason: 'no_players_found' });
+
+        // Configurar partida local: Usuario + IA aleatoria
+        const playerData = [
+            { id: 1, name: userName, isAI: false },
+            { id: 2, name: randomAI.name, isAI: true }
+        ];
+
+        // Limpiar sala si estaba en una
+        if (currentRoom) {
+            supabase.from('players_online').delete().eq('room_id', currentRoom.id).eq('user_id', user.id);
+        }
+
+        // Configurar partida de 10 minutos (600 segundos)
+        const gameConfig = {
+            gameDurationMs: 600 * 1000, // 10 minutos
+            isLocal: true,
+            startedFromLobby: true,
+            playerEmail: userEmail // Para tracking
+        };
+
+        onStartGame(playerData, gameConfig);
+    };
+
+    // Matchmaking automático al entrar
+    React.useEffect(() => {
+        if (matchmakingAttempted || currentRoom) return;
+
+        const attemptMatchmaking = async () => {
+            setLoading(true);
+            setLoadingMessage('Buscando salas activas...');
+
+            try {
+                // Buscar salas "waiting" ordenadas por created_at (las más antiguas primero)
+                const { data: rooms, error: roomsError } = await supabase
+                    .from('rooms')
+                    .select('*')
+                    .eq('status', 'waiting')
+                    .order('created_at', { ascending: true });
+
+                if (roomsError) throw roomsError;
+
+                // Buscar una sala con espacio disponible (< 4 jugadores)
+                let joinedRoom = null;
+                for (const room of rooms || []) {
+                    // Contar jugadores en esta sala
+                    const { count, error: countError } = await supabase
+                        .from('players_online')
+                        .select('*', { count: 'exact' })
+                        .eq('room_id', room.id);
+
+                    if (countError) continue;
+
+                    // Verificar si el usuario ya está en esta sala
+                    const { data: existingPlayer } = await supabase
+                        .from('players_online')
+                        .select('*')
+                        .eq('room_id', room.id)
+                        .eq('user_id', user.id)
+                        .single();
+
+                    if (existingPlayer) {
+                        // Ya está en esta sala
+                        joinedRoom = room;
+                        break;
+                    }
+
+                    if (count < 4) {
+                        // Unirse a esta sala
+                        const userEmail = user.email || user.user_metadata?.email || '';
+                        const { error: joinError } = await insertPlayer(supabase, {
+                            room_id: room.id,
+                            user_id: user.id,
+                            name: user.user_metadata?.full_name || 'Jugador',
+                            email: userEmail,
+                            photo: user.user_metadata?.avatar_url || '',
+                            color: GAME_DATA.PLAYERS.COLORS[count] || GAME_DATA.PLAYERS.COLORS[0],
+                            is_ready: true
+                        });
+
+                        if (!joinError) {
+                            joinedRoom = room;
+                            break;
+                        }
+                    }
+                }
+
+                if (joinedRoom) {
+                    setCurrentRoom(joinedRoom);
+                    setRoomCode(joinedRoom.code);
+                } else {
+                    // No hay salas disponibles, crear una
+                    setLoadingMessage('Creando nueva sala...');
+                    await createNewRoom();
+                }
+            } catch (error) {
+                console.error('Error en matchmaking:', error);
+                // Fallback: crear sala propia
+                await createNewRoom();
+            } finally {
+                setLoading(false);
+                setMatchmakingAttempted(true);
+            }
+        };
+
+        attemptMatchmaking();
+    }, [matchmakingAttempted, currentRoom, user]);
+
+    const createNewRoom = async () => {
         const code = Math.random().toString(36).substring(2, 6).toUpperCase();
         try {
-            // 1. Crear la sala
             const { data: room, error: roomError } = await supabase
                 .from('rooms')
                 .insert([{ code, status: 'waiting' }])
@@ -566,59 +711,369 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user })
 
             if (roomError) throw roomError;
 
-            // 2. Unirse a la sala como jugador 1
-            const { error: playerError } = await supabase
-                .from('players_online')
-                .insert([{
-                    room_id: room.id,
-                    user_id: user.id,
-                    name: user.user_metadata.full_name,
-                    photo: user.user_metadata.avatar_url,
-                    color: GAME_DATA.PLAYERS.COLORS[0],
-                    is_ready: true
-                }]);
+            const userEmail = user.email || user.user_metadata?.email || '';
+            const { error: playerError } = await insertPlayer(supabase, {
+                room_id: room.id,
+                user_id: user.id,
+                name: user.user_metadata?.full_name || 'Jugador',
+                email: userEmail,
+                photo: user.user_metadata?.avatar_url || '',
+                color: GAME_DATA.PLAYERS.COLORS[0],
+                is_ready: true
+            });
 
             if (playerError) throw playerError;
 
-            alert(`Sala creada con éxito. Código: ${code}`);
-            // Aquí luego navegaremos a la pantalla de espera de la sala
+            setCurrentRoom(room);
+            setRoomCode(code);
+            return room;
         } catch (error) {
-            console.error("Error al crear sala:", error.message);
-            alert("No se pudo crear la sala.");
+            console.error('Error al crear sala:', error);
+            alert('No se pudo crear la sala. Intenta de nuevo.');
+            return null;
+        }
+    };
+
+    // Timer y lógica de inicio automático
+    React.useEffect(() => {
+        if (!currentRoom) return;
+
+        const timer = setInterval(() => {
+            setTimeLeft(prev => {
+                const playerCount = players.length;
+
+                // Si llegamos a 4 jugadores → iniciar inmediatamente
+                if (playerCount >= 4) {
+                    clearInterval(timer);
+                    startOnlineGame();
+                    return 0;
+                }
+
+                // Si hay 2-3 jugadores, seguir esperando hasta 3 minutos
+                // Si hay solo 1 jugador, esperar 3 minutos y luego ir a local
+                if (prev <= 1) {
+                    clearInterval(timer);
+                    if (playerCount === 1) {
+                        // Solo el anfitrión, ir a partida local
+                        startLocalGameWithAI();
+                    } else {
+                        // 2-3 jugadores, iniciar de todos modos
+                        startOnlineGame();
+                    }
+                    return 0;
+                }
+
+                return prev - 1;
+            });
+        }, 1000);
+
+        return () => clearInterval(timer);
+    }, [currentRoom, players.length]);
+
+    // Iniciar partida online (2-4 jugadores)
+    const startOnlineGame = () => {
+        if (players.length < 2) return;
+
+        // Convertir jugadores online al formato del juego
+        const gamePlayers = players.map((p, idx) => ({
+            id: idx,
+            name: p.name,
+            isAI: false,
+            color: p.color || GAME_DATA.PLAYERS.COLORS[idx]
+        }));
+
+        // Marcar sala como playing
+        supabase.from('rooms').update({ status: 'playing' }).eq('id', currentRoom.id);
+
+        // Iniciar partida
+        const gameConfig = {
+            gameDurationMs: 600 * 1000, // 10 minutos
+            isOnline: true,
+            roomId: currentRoom.id,
+            roomCode: currentRoom.code
+        };
+
+        onStartGame(gamePlayers, gameConfig);
+    };
+
+    // Suscripción Realtime a jugadores
+    React.useEffect(() => {
+        if (!currentRoom) return;
+
+        const loadPlayers = async () => {
+            const { data } = await supabase
+                .from('players_online')
+                .select('*')
+                .eq('room_id', currentRoom.id)
+                .order('created_at', { ascending: true });
+            if (data) setPlayers(data);
+        };
+        loadPlayers();
+
+        const subscription = supabase
+            .channel(`room-${currentRoom.id}`)
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'players_online',
+                filter: `room_id=eq.${currentRoom.id}`
+            }, (payload) => {
+                if (payload.eventType === 'INSERT') {
+                    setPlayers(prev => [...prev, payload.new]);
+                } else if (payload.eventType === 'DELETE') {
+                    setPlayers(prev => prev.filter(p => p.id !== payload.old.id));
+                } else if (payload.eventType === 'UPDATE') {
+                    setPlayers(prev => prev.map(p => p.id === payload.new.id ? payload.new : p));
+                }
+            })
+            .subscribe();
+
+        return () => subscription.unsubscribe();
+    }, [currentRoom]);
+
+    // Unirse por código (opción manual para amigos)
+    const joinRoomByCode = async () => {
+        if (!roomCode || roomCode.length !== 4) {
+            alert('Ingresa un código válido de 4 caracteres');
+            return;
+        }
+        setLoading(true);
+        try {
+            const { data: room, error } = await supabase
+                .from('rooms')
+                .select('*')
+                .eq('code', roomCode.toUpperCase())
+                .eq('status', 'waiting')
+                .single();
+
+            if (error || !room) {
+                alert('Sala no encontrada o ya iniciada');
+                setLoading(false);
+                return;
+            }
+
+            const { count } = await supabase
+                .from('players_online')
+                .select('*', { count: 'exact' })
+                .eq('room_id', room.id);
+
+            if (count >= 4) {
+                alert('La sala está llena');
+                setLoading(false);
+                return;
+            }
+
+            const userEmail = user.email || user.user_metadata?.email || '';
+            await insertPlayer(supabase, {
+                room_id: room.id,
+                user_id: user.id,
+                name: user.user_metadata?.full_name || 'Jugador',
+                email: userEmail,
+                photo: user.user_metadata?.avatar_url || '',
+                color: GAME_DATA.PLAYERS.COLORS[count] || GAME_DATA.PLAYERS.COLORS[0],
+                is_ready: true
+            });
+
+            setCurrentRoom(room);
+            setShowJoinByCode(false);
+        } catch (error) {
+            console.error('Error al unirse:', error);
+            alert('No se pudo unir a la sala');
         } finally {
             setLoading(false);
         }
     };
 
+    const leaveRoom = async () => {
+        if (currentRoom) {
+            await supabase.from('players_online').delete().eq('room_id', currentRoom.id).eq('user_id', user.id);
+            const { count } = await supabase.from('players_online').select('*', { count: 'exact' }).eq('room_id', currentRoom.id);
+            if (count === 0) {
+                await supabase.from('rooms').delete().eq('id', currentRoom.id);
+            }
+        }
+        setActiveScreen('inicio');
+    };
+
+    const formatTime = (seconds) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
+
+    // Pantalla de carga inicial (matchmaking)
+    if (loading && !currentRoom) {
+        return (
+            <div id="lobbyOnline" className="screen active">
+                <div className="inicio-frame no-background">
+                    <main className="inicio-main" style={{ justifyContent: 'center' }}>
+                        <div className="matchmaking-loading">
+                            <div className="loading-spinner"></div>
+                            <h2>{loadingMessage}</h2>
+                            <p>Buscando jugadores de la comunidad...</p>
+                            <button className="button" onClick={() => { setLoading(false); setMatchmakingAttempted(true); }} style={{ marginTop: '20px' }}>
+                                Cancelar
+                            </button>
+                        </div>
+                    </main>
+                </div>
+            </div>
+        );
+    }
+
+    // Pantalla de unirse por código (opción secundaria)
+    if (showJoinByCode) {
+        return (
+            <div id="lobbyOnline" className="screen active">
+                <div className="inicio-frame no-background">
+                    <header className="inicio-header"><h1>Unirse por Código</h1></header>
+                    <main className="inicio-main" style={{ justifyContent: 'center' }}>
+                        <div className="action-card" style={{ maxWidth: '300px' }}>
+                            <h3>Ingresa el código de tu amigo</h3>
+                            <input
+                                type="text"
+                                placeholder="ABCD"
+                                maxLength="4"
+                                value={roomCode}
+                                onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+                                className="text-input"
+                                style={{ textAlign: 'center', fontSize: '1.5rem', letterSpacing: '10px' }}
+                            />
+                            <button className="button" onClick={joinRoomByCode} disabled={roomCode.length !== 4}>
+                                {loading ? 'Entrando...' : 'Unirse a Sala'}
+                            </button>
+                            <button className="button button-secondary" onClick={() => setShowJoinByCode(false)}>
+                                Volver
+                            </button>
+                        </div>
+                    </main>
+                </div>
+            </div>
+        );
+    }
+
+    // Sala de espera
+    if (currentRoom) {
+        const isFull = players.length >= 4;
+        const isAlone = players.length === 1;
+        const canStart = players.length >= 2;
+
+        return (
+            <div id="lobbyOnline" className="screen active">
+                <div className="inicio-frame no-background">
+                    <header className="inicio-header">
+                        <h1>Sala: {currentRoom.code}</h1>
+                        {canStart && !isFull && (
+                            <div className="lobby-timer waiting">
+                                Esperando 4to: {formatTime(timeLeft)}
+                            </div>
+                        )}
+                        {isAlone && (
+                            <div className="lobby-timer alone">
+                                Buscando jugadores: {formatTime(timeLeft)}
+                            </div>
+                        )}
+                        {isFull && (
+                            <div className="lobby-timer full">
+                                ¡Sala completa! Iniciando...
+                            </div>
+                        )}
+                    </header>
+                    <main className="inicio-main">
+                        <div className="lobby-room">
+                            <div className="players-grid">
+                                {players.map((player, idx) => (
+                                    <div key={player.id} className={`player-slot ${player.is_ready ? 'ready' : ''}`}>
+                                        <div className="player-avatar" style={{ borderColor: player.color }}>
+                                            {player.photo ? (
+                                                <img src={player.photo} alt={player.name} />
+                                            ) : (
+                                                <div className="avatar-placeholder">{player.name?.[0] || '?'}</div>
+                                            )}
+                                        </div>
+                                        <span className="player-name">{player.name}</span>
+                                        <span className="player-status">
+                                            {player.is_ready ? '✓ Listo' : '...'}
+                                        </span>
+                                        {idx === 0 && <span className="host-badge">Anfitrión</span>}
+                                    </div>
+                                ))}
+                                {Array.from({ length: 4 - players.length }).map((_, idx) => (
+                                    <div key={`empty-${idx}`} className="player-slot empty">
+                                        <div className="player-avatar empty">+</div>
+                                        <span className="player-name">Esperando...</span>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="lobby-info">
+                                <p className="players-count">
+                                    {players.length} de 4 jugadores
+                                </p>
+                                {isAlone && (
+                                    <p className="lobby-message">
+                                        Esperando jugadores... Si nadie entra en {formatTime(timeLeft)},
+                                        jugarás contra la IA <strong>(AEB)</strong>
+                                    </p>
+                                )}
+                                {canStart && !isFull && (
+                                    <p className="lobby-message">
+                                        ¡Bien! Esperando un 4to jugador...<br/>
+                                        O inicia ahora con los {players.length} jugadores
+                                    </p>
+                                )}
+                            </div>
+
+                            <div className="lobby-actions-row">
+                                <button className="button" onClick={() => {
+                                    navigator.clipboard.writeText(currentRoom.code);
+                                    setCopied(true);
+                                    setTimeout(() => setCopied(false), 2000);
+                                }}>
+                                    {copied ? '¡Copiado!' : 'Copiar Código'}
+                                </button>
+                                {canStart && (
+                                    <button className="button button-success" onClick={startOnlineGame}>
+                                        Iniciar Ahora
+                                    </button>
+                                )}
+                                <button className="button button-secondary" onClick={leaveRoom}>
+                                    Salir
+                                </button>
+                            </div>
+                        </div>
+                    </main>
+                </div>
+            </div>
+        );
+    }
+
+    // Fallback: opciones de búsqueda (si el matchmaking falló)
     return (
         <div id="lobbyOnline" className="screen active">
             <div className="inicio-frame no-background">
-                <header className="inicio-header">
-                    <h1>Multijugador Online</h1>
-                </header>
+                <header className="inicio-header"><h1>Multijugador Online</h1></header>
                 <main className="inicio-main">
                     <div className="lobby-actions">
                         <div className="action-card">
-                            <h3>Crear Nueva Partida</h3>
-                            <p>Se generará un código para que tus amigos se unan.</p>
-                            <button className="button" onClick={createRoom} disabled={loading}>
-                                {loading ? 'Creando...' : 'Crear Sala'}
+                            <h3>🔍 Búsqueda Automática</h3>
+                            <p>Busca y únete automáticamente a partidas de desconocidos.</p>
+                            <button className="button" onClick={() => { setMatchmakingAttempted(false); setLoading(true); }}>
+                                Buscar Partida
                             </button>
                         </div>
                         <div className="divider-lobby">O</div>
                         <div className="action-card">
-                            <h3>Unirse a Partida</h3>
-                            <input 
-                                type="text" 
-                                placeholder="CÓDIGO (4 letras)" 
-                                maxLength="4" 
-                                value={roomCode}
-                                onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-                                className="text-input"
-                            />
-                            <button className="button" onClick={() => alert('Próximamente: Unirse')}>
-                                Entrar a Sala
-                            </button>
+                            <h3>🎮 Jugar con Amigos</h3>
+                            <p>Crea una sala o únete usando un código para jugar con conocidos.</p>
+                            <div style={{ display: 'flex', gap: '10px', flexDirection: 'column' }}>
+                                <button className="button" onClick={createNewRoom}>
+                                    Crear Sala
+                                </button>
+                                <button className="button button-secondary" onClick={() => setShowJoinByCode(true)}>
+                                    Unirse por Código
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </main>
@@ -822,9 +1277,40 @@ const GameHeaderWithOptions = () => {
 };
 const App = () => {
     const [user, setUser] = React.useState(null);
-    const [activeScreen, setActiveScreen] = React.useState('inicio'); 
+    const [activeScreen, setActiveScreen] = React.useState('inicio');
     const [centralImages, setCentralImages] = React.useState([]);
     const [currentSponsorIndex, setCurrentSponsorIndex] = React.useState(0);
+    const [oauthProcessing, setOauthProcessing] = React.useState(false);
+
+    // Manejar callback de OAuth (token en URL hash)
+    React.useEffect(() => {
+        const handleOAuthCallback = async () => {
+            // Verificar si hay hash con access_token en la URL
+            const hash = window.location.hash;
+            if (hash && hash.includes('access_token=')) {
+                setOauthProcessing(true);
+                console.log('OAuth callback detectado, procesando token...');
+
+                // Supabase procesará automáticamente el hash al llamar getSession
+                const { data: { session }, error } = await supabase.auth.getSession();
+
+                if (error) {
+                    console.error('Error al procesar OAuth:', error);
+                } else if (session?.user) {
+                    console.log('Sesión establecida:', session.user.email);
+                    setUser(session.user);
+                    // Limpiar URL
+                    window.history.replaceState(null, null, window.location.pathname);
+                    // Redirigir al lobby
+                    setActiveScreen('lobbyOnline');
+                }
+
+                setOauthProcessing(false);
+            }
+        };
+
+        handleOAuthCallback();
+    }, []);
 
     // Escuchar cambios en la sesión de Supabase
     React.useEffect(() => {
@@ -834,8 +1320,14 @@ const App = () => {
         });
 
         // Escuchar cambios (login/logout)
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-            setUser(session?.user ?? null);
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+            const currentUser = session?.user ?? null;
+            setUser(currentUser);
+
+            // Redirigir al lobby cuando el usuario se loguea
+            if (event === 'SIGNED_IN' && currentUser) {
+                setActiveScreen('lobbyOnline');
+            }
         });
 
         return () => subscription.unsubscribe();
@@ -1526,8 +2018,15 @@ const App = () => {
     };
     return (
         <div className="app-container">
+            {oauthProcessing && (
+                <div className="oauth-loading-overlay">
+                    <div className="loading-spinner"></div>
+                    <h2>Conectando con Google...</h2>
+                </div>
+            )}
             <GameHeaderWithOptions />
-            <PantallaInicio activeScreen={activeScreen} setActiveScreen={setActiveScreen} />
+            <PantallaInicio activeScreen={activeScreen} setActiveScreen={setActiveScreen} user={user} onLogout={handleLogout} oauthProcessing={oauthProcessing} />
+            <PantallaLobbyOnline activeScreen={activeScreen} setActiveScreen={setActiveScreen} user={user} onStartGame={startGame} />
             <PantallaSetupLocal activeScreen={activeScreen} setActiveScreen={setActiveScreen} onStartGame={startGame} />
             <div id="juego" className={`screen ${activeScreen === 'juego' ? 'active' : ''}`}> 
                 <div className="game-screen-layout">
