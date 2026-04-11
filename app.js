@@ -617,6 +617,32 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
         onStartGame(playerData, gameConfig);
     };
 
+    // Función para limpiar salas huérfanas
+    const cleanupEmptyRooms = async () => {
+        try {
+            console.log('Limpiando salas huérfanas...');
+            // Obtener todas las salas waiting
+            const { data: rooms } = await supabase
+                .from('rooms')
+                .select('id, code')
+                .eq('status', 'waiting');
+
+            for (const room of rooms || []) {
+                const { count } = await supabase
+                    .from('players_online')
+                    .select('*', { count: 'exact' })
+                    .eq('room_id', room.id);
+
+                if (count === 0) {
+                    console.log('Eliminando sala huérfana:', room.code);
+                    await supabase.from('rooms').delete().eq('id', room.id);
+                }
+            }
+        } catch (e) {
+            console.error('Error limpiando salas:', e);
+        }
+    };
+
     // Matchmaking automático al entrar
     React.useEffect(() => {
         if (matchmakingAttempted || currentRoom) return;
@@ -626,6 +652,9 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
             setLoadingMessage('Buscando salas activas...');
 
             try {
+                // Primero limpiar salas huérfanas
+                await cleanupEmptyRooms();
+
                 // Buscar salas "waiting" ordenadas por created_at (las más antiguas primero)
                 console.log('Buscando salas disponibles...');
                 const { data: rooms, error: roomsError } = await supabase
@@ -637,9 +666,15 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                 if (roomsError) throw roomsError;
                 console.log('Salas encontradas:', rooms?.length || 0, rooms?.map(r => r.code));
 
-                // Buscar una sala con espacio disponible (< 4 jugadores)
+                // Buscar una sala con espacio disponible (1-3 jugadores, no vacías ni llenas)
                 let joinedRoom = null;
-                for (const room of rooms || []) {
+                // Ordenar salas: primero las que tienen 1-3 jugadores (activas), luego las vacías
+                const sortedRooms = (rooms || []).sort((a, b) => {
+                    // Las salas con jugadores tienen prioridad sobre las vacías
+                    return 0; // Mantener orden original por ahora
+                });
+
+                for (const room of sortedRooms) {
                     // Contar jugadores en esta sala
                     const { count, error: countError } = await supabase
                         .from('players_online')
@@ -649,20 +684,32 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                     if (countError) continue;
 
                     // Verificar si el usuario ya está en esta sala
-                    const { data: existingPlayer } = await supabase
+                    const { data: existingPlayers } = await supabase
                         .from('players_online')
                         .select('*')
                         .eq('room_id', room.id)
-                        .eq('user_id', user.id)
-                        .single();
+                        .eq('user_id', user.id);
 
-                    if (existingPlayer) {
+                    if (existingPlayers && existingPlayers.length > 0) {
                         // Ya está en esta sala
                         joinedRoom = room;
                         break;
                     }
 
-                    console.log(`Sala ${room.code} tiene ${count} jugadores, espacio disponible`);
+                    console.log(`Sala ${room.code} tiene ${count} jugadores`);
+
+                    // Ignorar salas vacías (0 jugadores) - probablemente huérfanas de pruebas anteriores
+                    // Ignorar salas llenas (4+ jugadores)
+                    if (count === 0) {
+                        console.log(`Ignorando sala ${room.code} vacía`);
+                        continue;
+                    }
+                    if (count >= 4) {
+                        console.log(`Sala ${room.code} llena, saltando`);
+                        continue;
+                    }
+
+                    console.log(`Sala ${room.code} tiene espacio disponible`);
                     if (count < 4) {
                         // Unirse a esta sala
                         const userEmail = user.email || user.user_metadata?.email || '';
@@ -688,7 +735,7 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                                 .from('players_online')
                                 .select('*')
                                 .eq('room_id', room.id)
-                                .order('created_at', { ascending: true });
+                                .order('id', { ascending: true });
 
                             // Agregar el jugador actual al final
                             const joinedPlayer = {
@@ -861,7 +908,7 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                 .from('players_online')
                 .select('*')
                 .eq('room_id', currentRoom.id)
-                .order('created_at', { ascending: true });
+                .order('id', { ascending: true });
 
             if (error) {
                 console.error('Error cargando jugadores:', error);
@@ -940,7 +987,7 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                 .from('players_online')
                 .select('*')
                 .eq('room_id', room.id)
-                .order('created_at', { ascending: true });
+                .order('id', { ascending: true });
 
             const userEmail = user.email || user.user_metadata?.email || '';
             await insertPlayer(supabase, {
@@ -982,9 +1029,12 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
 
     const leaveRoom = async () => {
         if (currentRoom) {
+            console.log('Saliendo de sala:', currentRoom.code);
             await supabase.from('players_online').delete().eq('room_id', currentRoom.id).eq('user_id', user.id);
             const { count } = await supabase.from('players_online').select('*', { count: 'exact' }).eq('room_id', currentRoom.id);
+            console.log('Jugadores restantes en sala:', count);
             if (count === 0) {
+                console.log('Eliminando sala vacía:', currentRoom.code);
                 await supabase.from('rooms').delete().eq('id', currentRoom.id);
             }
         }
