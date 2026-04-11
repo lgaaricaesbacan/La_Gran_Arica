@@ -573,6 +573,9 @@ const insertPlayer = async (supabase, playerData) => {
 };
 
 const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, onStartGame }) => {
+    // Validación temprana: no renderizar si no es la pantalla activa
+    if (activeScreen !== 'lobbyOnline') return null;
+
     const [roomCode, setRoomCode] = React.useState('');
     const [loading, setLoading] = React.useState(true);
     const [loadingMessage, setLoadingMessage] = React.useState('Buscando partidas disponibles...');
@@ -667,7 +670,9 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                             email: userEmail,
                             photo: user.user_metadata?.avatar_url || '',
                             color: GAME_DATA.PLAYERS.COLORS[count] || GAME_DATA.PLAYERS.COLORS[0],
-                            is_ready: true
+                            is_ready: true,
+                            position: 1,
+                            money: GAME_DATA.PLAYERS.INITIAL_MONEY[count]
                         });
 
                         if (!joinError) {
@@ -717,7 +722,9 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                 email: userEmail,
                 photo: user.user_metadata?.avatar_url || '',
                 color: GAME_DATA.PLAYERS.COLORS[0],
-                is_ready: true
+                is_ready: true,
+                position: 1,
+                money: GAME_DATA.PLAYERS.INITIAL_MONEY[0]  // Anfitrión siempre 7100
             });
 
             if (playerError) throw playerError;
@@ -817,7 +824,12 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                 filter: `room_id=eq.${currentRoom.id}`
             }, (payload) => {
                 if (payload.eventType === 'INSERT') {
-                    setPlayers(prev => [...prev, payload.new]);
+                    // Verificar si el jugador ya existe para evitar duplicados
+                    setPlayers(prev => {
+                        const exists = prev.some(p => p.user_id === payload.new.user_id);
+                        if (exists) return prev;
+                        return [...prev, payload.new];
+                    });
                 } else if (payload.eventType === 'DELETE') {
                     setPlayers(prev => prev.filter(p => p.id !== payload.old.id));
                 } else if (payload.eventType === 'UPDATE') {
@@ -869,7 +881,9 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                 email: userEmail,
                 photo: user.user_metadata?.avatar_url || '',
                 color: GAME_DATA.PLAYERS.COLORS[count] || GAME_DATA.PLAYERS.COLORS[0],
-                is_ready: true
+                is_ready: true,
+                position: 1,
+                money: GAME_DATA.PLAYERS.INITIAL_MONEY[count]
             });
 
             setCurrentRoom(room);
