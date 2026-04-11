@@ -627,6 +627,7 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
 
             try {
                 // Buscar salas "waiting" ordenadas por created_at (las más antiguas primero)
+                console.log('Buscando salas disponibles...');
                 const { data: rooms, error: roomsError } = await supabase
                     .from('rooms')
                     .select('*')
@@ -634,6 +635,7 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                     .order('created_at', { ascending: true });
 
                 if (roomsError) throw roomsError;
+                console.log('Salas encontradas:', rooms?.length || 0, rooms?.map(r => r.code));
 
                 // Buscar una sala con espacio disponible (< 4 jugadores)
                 let joinedRoom = null;
@@ -660,9 +662,11 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                         break;
                     }
 
+                    console.log(`Sala ${room.code} tiene ${count} jugadores, espacio disponible`);
                     if (count < 4) {
                         // Unirse a esta sala
                         const userEmail = user.email || user.user_metadata?.email || '';
+                        console.log('Intentando unirse a sala:', room.code, 'como jugador #', count + 1);
                         const { error: joinError } = await insertPlayer(supabase, {
                             room_id: room.id,
                             user_id: user.id,
@@ -676,8 +680,34 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                         });
 
                         if (!joinError) {
+                            console.log('Unido exitosamente a sala:', room.code);
                             joinedRoom = room;
+
+                            // Cargar jugadores existentes de la sala
+                            const { data: existingPlayers } = await supabase
+                                .from('players_online')
+                                .select('*')
+                                .eq('room_id', room.id)
+                                .order('created_at', { ascending: true });
+
+                            // Agregar el jugador actual al final
+                            const joinedPlayer = {
+                                id: Date.now(), // ID temporal
+                                room_id: room.id,
+                                user_id: user.id,
+                                name: user.user_metadata?.full_name || 'Jugador',
+                                email: user.email || user.user_metadata?.email || '',
+                                photo: user.user_metadata?.avatar_url || '',
+                                color: GAME_DATA.PLAYERS.COLORS[count] || GAME_DATA.PLAYERS.COLORS[0],
+                                is_ready: true,
+                                position: 1,
+                                money: GAME_DATA.PLAYERS.INITIAL_MONEY[count]
+                            };
+
+                            setPlayers(existingPlayers ? [...existingPlayers, joinedPlayer] : [joinedPlayer]);
                             break;
+                        } else {
+                            console.error('Error al unirse a sala:', joinError);
                         }
                     }
                 }
@@ -727,7 +757,27 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                 money: GAME_DATA.PLAYERS.INITIAL_MONEY[0]  // Anfitrión siempre 7100
             });
 
-            if (playerError) throw playerError;
+            if (playerError) {
+                console.error('Error al insertar jugador en nueva sala:', playerError);
+                throw playerError;
+            }
+
+            console.log('Sala creada y jugador insertado:', { roomId: room.id, code, userId: user.id });
+
+            // Agregar el jugador manualmente al estado para evitar race condition
+            const newPlayer = {
+                id: Date.now(), // ID temporal hasta que el suscriptor traiga el real
+                room_id: room.id,
+                user_id: user.id,
+                name: user.user_metadata?.full_name || 'Jugador',
+                email: user.email || user.user_metadata?.email || '',
+                photo: user.user_metadata?.avatar_url || '',
+                color: GAME_DATA.PLAYERS.COLORS[0],
+                is_ready: true,
+                position: 1,
+                money: GAME_DATA.PLAYERS.INITIAL_MONEY[0]
+            };
+            setPlayers([newPlayer]);
 
             setCurrentRoom(room);
             setRoomCode(code);
@@ -806,12 +856,19 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
         if (!currentRoom) return;
 
         const loadPlayers = async () => {
-            const { data } = await supabase
+            console.log('Cargando jugadores para sala:', currentRoom.id);
+            const { data, error } = await supabase
                 .from('players_online')
                 .select('*')
                 .eq('room_id', currentRoom.id)
                 .order('created_at', { ascending: true });
-            if (data) setPlayers(data);
+
+            if (error) {
+                console.error('Error cargando jugadores:', error);
+            } else {
+                console.log('Jugadores cargados:', data?.length || 0, data);
+                if (data) setPlayers(data);
+            }
         };
         loadPlayers();
 
@@ -823,11 +880,16 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                 table: 'players_online',
                 filter: `room_id=eq.${currentRoom.id}`
             }, (payload) => {
+                console.log('Realtime event:', payload.eventType, payload);
                 if (payload.eventType === 'INSERT') {
                     // Verificar si el jugador ya existe para evitar duplicados
                     setPlayers(prev => {
                         const exists = prev.some(p => p.user_id === payload.new.user_id);
-                        if (exists) return prev;
+                        if (exists) {
+                            console.log('Jugador ya existe, ignorando INSERT:', payload.new.user_id);
+                            return prev;
+                        }
+                        console.log('Agregando nuevo jugador:', payload.new);
                         return [...prev, payload.new];
                     });
                 } else if (payload.eventType === 'DELETE') {
@@ -873,6 +935,13 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                 return;
             }
 
+            // Cargar jugadores existentes antes de unirse
+            const { data: existingPlayers } = await supabase
+                .from('players_online')
+                .select('*')
+                .eq('room_id', room.id)
+                .order('created_at', { ascending: true });
+
             const userEmail = user.email || user.user_metadata?.email || '';
             await insertPlayer(supabase, {
                 room_id: room.id,
@@ -885,6 +954,21 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                 position: 1,
                 money: GAME_DATA.PLAYERS.INITIAL_MONEY[count]
             });
+
+            // Agregar el jugador actual a la lista
+            const joinedPlayer = {
+                id: Date.now(),
+                room_id: room.id,
+                user_id: user.id,
+                name: user.user_metadata?.full_name || 'Jugador',
+                email: userEmail,
+                photo: user.user_metadata?.avatar_url || '',
+                color: GAME_DATA.PLAYERS.COLORS[count] || GAME_DATA.PLAYERS.COLORS[0],
+                is_ready: true,
+                position: 1,
+                money: GAME_DATA.PLAYERS.INITIAL_MONEY[count]
+            };
+            setPlayers(existingPlayers ? [...existingPlayers, joinedPlayer] : [joinedPlayer]);
 
             setCurrentRoom(room);
             setShowJoinByCode(false);
