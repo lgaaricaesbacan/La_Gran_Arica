@@ -585,6 +585,9 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
     const [copied, setCopied] = React.useState(false);
     const [matchmakingAttempted, setMatchmakingAttempted] = React.useState(false);
     const [showJoinByCode, setShowJoinByCode] = React.useState(false);
+    const [showRoomSelector, setShowRoomSelector] = React.useState(false);
+    const [availableRooms, setAvailableRooms] = React.useState([]);
+    const [manualCode, setManualCode] = React.useState('');
 
     // Función para iniciar partida local con IA aleatoria
     const startLocalGameWithAI = () => {
@@ -640,6 +643,32 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
             }
         } catch (e) {
             console.error('Error limpiando salas:', e);
+        }
+    };
+
+    // Función para cargar salas disponibles (para el dropdown)
+    const loadAvailableRooms = async () => {
+        try {
+            const { data: rooms } = await supabase
+                .from('rooms')
+                .select('id, code, status')
+                .eq('status', 'waiting');
+
+            const roomsWithCount = await Promise.all(
+                (rooms || []).map(async (room) => {
+                    const { count } = await supabase
+                        .from('players_online')
+                        .select('*', { count: 'exact' })
+                        .eq('room_id', room.id);
+                    return { ...room, playerCount: count || 0 };
+                })
+            );
+
+            // Solo salas con 1-3 jugadores (no vacías, no llenas)
+            const validRooms = roomsWithCount.filter(r => r.playerCount >= 1 && r.playerCount < 4);
+            setAvailableRooms(validRooms);
+        } catch (e) {
+            console.error('Error cargando salas disponibles:', e);
         }
     };
 
@@ -1041,6 +1070,80 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
         setActiveScreen('inicio');
     };
 
+    // Función para cambiar a otra sala
+    const switchToRoom = async (newRoom) => {
+        console.log('Cambiando a sala:', newRoom.code);
+        setShowRoomSelector(false);
+
+        // Salir de la sala actual
+        if (currentRoom) {
+            await supabase.from('players_online').delete()
+                .eq('room_id', currentRoom.id)
+                .eq('user_id', user.id);
+
+            // Verificar si la sala anterior quedó vacía
+            const { count } = await supabase
+                .from('players_online')
+                .select('*', { count: 'exact' })
+                .eq('room_id', currentRoom.id);
+
+            if (count === 0) {
+                await supabase.from('rooms').delete().eq('id', currentRoom.id);
+            }
+        }
+
+        // Unirse a la nueva sala
+        try {
+            const { count } = await supabase
+                .from('players_online')
+                .select('*', { count: 'exact' })
+                .eq('room_id', newRoom.id);
+
+            const userEmail = user.email || user.user_metadata?.email || '';
+            await insertPlayer(supabase, {
+                room_id: newRoom.id,
+                user_id: user.id,
+                name: user.user_metadata?.full_name || 'Jugador',
+                email: userEmail,
+                photo: user.user_metadata?.avatar_url || '',
+                color: GAME_DATA.PLAYERS.COLORS[count] || GAME_DATA.PLAYERS.COLORS[0],
+                is_ready: true,
+                position: 1,
+                money: GAME_DATA.PLAYERS.INITIAL_MONEY[count] || 7100
+            });
+
+            // Cargar jugadores de la nueva sala
+            const { data: existingPlayers } = await supabase
+                .from('players_online')
+                .select('*')
+                .eq('room_id', newRoom.id)
+                .order('id', { ascending: true });
+
+            // Agregar el jugador actual
+            const joinedPlayer = {
+                id: Date.now(),
+                room_id: newRoom.id,
+                user_id: user.id,
+                name: user.user_metadata?.full_name || 'Jugador',
+                email: userEmail,
+                photo: user.user_metadata?.avatar_url || '',
+                color: GAME_DATA.PLAYERS.COLORS[count] || GAME_DATA.PLAYERS.COLORS[0],
+                is_ready: true,
+                position: 1,
+                money: GAME_DATA.PLAYERS.INITIAL_MONEY[count] || 7100
+            };
+
+            setPlayers(existingPlayers ? [...existingPlayers, joinedPlayer] : [joinedPlayer]);
+            setCurrentRoom(newRoom);
+            setRoomCode(newRoom.code);
+            setTimeLeft(180); // Reset timer
+
+        } catch (error) {
+            console.error('Error cambiando de sala:', error);
+            alert('No se pudo unir a la sala. Intenta de nuevo.');
+        }
+    };
+
     const formatTime = (seconds) => {
         const mins = Math.floor(seconds / 60);
         const secs = seconds % 60;
@@ -1108,7 +1211,136 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
             <div id="lobbyOnline" className="screen active">
                 <div className="inicio-frame no-background">
                     <header className="inicio-header">
-                        <h1>Sala: {currentRoom.code}</h1>
+                        {/* Dropdown selector de sala */}
+                        <div style={{ position: 'relative', display: 'inline-block' }}>
+                            <h1
+                                onClick={() => {
+                                    loadAvailableRooms();
+                                    setShowRoomSelector(!showRoomSelector);
+                                }}
+                                style={{
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '10px',
+                                    userSelect: 'none'
+                                }}
+                            >
+                                Sala: {currentRoom.code}
+                                <span style={{
+                                    fontSize: '0.6em',
+                                    transition: 'transform 0.2s',
+                                    transform: showRoomSelector ? 'rotate(180deg)' : 'rotate(0deg)'
+                                }}>▼</span>
+                            </h1>
+
+                            {showRoomSelector && (
+                                <div style={{
+                                    position: 'absolute',
+                                    top: '100%',
+                                    left: '50%',
+                                    transform: 'translateX(-50%)',
+                                    background: 'rgba(0,0,0,0.95)',
+                                    border: '2px solid var(--border-color)',
+                                    borderRadius: 'var(--radius-md)',
+                                    padding: '15px',
+                                    minWidth: '280px',
+                                    zIndex: 100,
+                                    marginTop: '10px'
+                                }}>
+                                    <h3 style={{ marginBottom: '10px', fontSize: '0.9rem' }}>Otras Salas Disponibles</h3>
+
+                                    {availableRooms.filter(r => r.id !== currentRoom.id).length === 0 ? (
+                                        <p style={{ fontSize: '0.8rem', opacity: 0.7 }}>No hay otras salas activas</p>
+                                    ) : (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '15px' }}>
+                                            {availableRooms
+                                                .filter(r => r.id !== currentRoom.id)
+                                                .map(room => (
+                                                    <button
+                                                        key={room.id}
+                                                        onClick={() => switchToRoom(room)}
+                                                        style={{
+                                                            background: 'rgba(255,255,255,0.1)',
+                                                            border: '1px solid var(--border-color)',
+                                                            borderRadius: 'var(--radius-sm)',
+                                                            padding: '8px',
+                                                            color: 'white',
+                                                            cursor: 'pointer',
+                                                            display: 'flex',
+                                                            justifyContent: 'space-between',
+                                                            alignItems: 'center'
+                                                        }}
+                                                    >
+                                                        <span>{room.code}</span>
+                                                        <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>{room.playerCount}/4</span>
+                                                    </button>
+                                                ))}
+                                        </div>
+                                    )}
+
+                                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.2)', paddingTop: '10px' }}>
+                                        <p style={{ fontSize: '0.8rem', marginBottom: '8px' }}>¿Tienes un código?</p>
+                                        <div style={{ display: 'flex', gap: '5px' }}>
+                                            <input
+                                                type="text"
+                                                placeholder="ABCD"
+                                                maxLength="4"
+                                                value={manualCode}
+                                                onChange={(e) => setManualCode(e.target.value.toUpperCase())}
+                                                style={{
+                                                    flex: 1,
+                                                    padding: '8px',
+                                                    borderRadius: 'var(--radius-sm)',
+                                                    border: '1px solid var(--border-color)',
+                                                    background: 'rgba(255,255,255,0.1)',
+                                                    color: 'white',
+                                                    textAlign: 'center',
+                                                    letterSpacing: '3px',
+                                                    fontWeight: 'bold'
+                                                }}
+                                            />
+                                            <button
+                                                onClick={() => {
+                                                    setRoomCode(manualCode);
+                                                    joinRoomByCode();
+                                                    setShowRoomSelector(false);
+                                                }}
+                                                disabled={manualCode.length !== 4}
+                                                style={{
+                                                    padding: '8px 15px',
+                                                    borderRadius: 'var(--radius-sm)',
+                                                    border: 'none',
+                                                    background: manualCode.length === 4 ? 'var(--button-bg)' : '#666',
+                                                    color: manualCode.length === 4 ? 'var(--button-text)' : '#999',
+                                                    cursor: manualCode.length === 4 ? 'pointer' : 'not-allowed',
+                                                    fontWeight: 'bold'
+                                                }}
+                                            >
+                                                Unirse
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <button
+                                        onClick={() => setShowRoomSelector(false)}
+                                        style={{
+                                            marginTop: '10px',
+                                            width: '100%',
+                                            padding: '8px',
+                                            background: 'transparent',
+                                            border: '1px solid #666',
+                                            borderRadius: 'var(--radius-sm)',
+                                            color: '#999',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        Cerrar
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+
                         {canStart && !isFull && (
                             <div className="lobby-timer waiting">
                                 Esperando 4to: {formatTime(timeLeft)}
@@ -1194,38 +1426,25 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
         );
     }
 
-    // Fallback: opciones de búsqueda (si el matchmaking falló)
+    // Fallback: Si el matchmaking no encontró sala, crear una nueva automáticamente
+    React.useEffect(() => {
+        if (!currentRoom && matchmakingAttempted && !loading) {
+            console.log('Matchmaking sin éxito, creando sala automáticamente...');
+            createNewRoom();
+        }
+    }, [currentRoom, matchmakingAttempted, loading]);
+
+    // Mientras se crea la sala, mostrar loading
     return (
         <div id="lobbyOnline" className="screen active">
             <div className="inicio-frame no-background">
-                <header className="inicio-header"><h1>Multijugador Online</h1></header>
-                <main className="inicio-main">
-                    <div className="lobby-actions">
-                        <div className="action-card">
-                            <h3>🔍 Búsqueda Automática</h3>
-                            <p>Busca y únete automáticamente a partidas de desconocidos.</p>
-                            <button className="button" onClick={() => { setMatchmakingAttempted(false); setLoading(true); }}>
-                                Buscar Partida
-                            </button>
-                        </div>
-                        <div className="divider-lobby">O</div>
-                        <div className="action-card">
-                            <h3>🎮 Jugar con Amigos</h3>
-                            <p>Crea una sala o únete usando un código para jugar con conocidos.</p>
-                            <div style={{ display: 'flex', gap: '10px', flexDirection: 'column' }}>
-                                <button className="button" onClick={createNewRoom}>
-                                    Crear Sala
-                                </button>
-                                <button className="button button-secondary" onClick={() => setShowJoinByCode(true)}>
-                                    Unirse por Código
-                                </button>
-                            </div>
-                        </div>
+                <main className="inicio-main" style={{ justifyContent: 'center' }}>
+                    <div className="matchmaking-loading">
+                        <div className="loading-spinner"></div>
+                        <h2>Preparando sala...</h2>
+                        <p>Creando nueva partida</p>
                     </div>
                 </main>
-                <footer className="inicio-footer">
-                    <button className="button" onClick={() => setActiveScreen('inicio')}>Regresar</button>
-                </footer>
             </div>
         </div>
     );
