@@ -588,6 +588,7 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
     const [showRoomSelector, setShowRoomSelector] = React.useState(false);
     const [availableRooms, setAvailableRooms] = React.useState([]);
     const [manualCode, setManualCode] = React.useState('');
+    const matchmakingInProgress = React.useRef(false);
 
     // Función para iniciar partida local con IA aleatoria
     const startLocalGameWithAI = () => {
@@ -674,9 +675,12 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
 
     // Matchmaking automático al entrar
     React.useEffect(() => {
-        if (matchmakingAttempted || currentRoom) return;
+        if (matchmakingAttempted || currentRoom || matchmakingInProgress.current) return;
 
         const attemptMatchmaking = async () => {
+            // Evitar ejecuciones simultáneas
+            if (matchmakingInProgress.current) return;
+            matchmakingInProgress.current = true;
             setLoading(true);
             setLoadingMessage('Buscando salas activas...');
 
@@ -782,6 +786,23 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
 
                             setPlayers(existingPlayers ? [...existingPlayers, joinedPlayer] : [joinedPlayer]);
                             break;
+                        } else if (joinError.code === '23505') {
+                            // Error: jugador ya existe en esta sala ( UNIQUE constraint violation )
+                            console.log('Jugador ya estaba en la sala, recuperando estado...', room.code);
+                            joinedRoom = room;
+
+                            // Cargar todos los jugadores de la sala (incluyendo al usuario actual)
+                            const { data: existingPlayers } = await supabase
+                                .from('players_online')
+                                .select('*')
+                                .eq('room_id', room.id)
+                                .order('id', { ascending: true });
+
+                            if (existingPlayers) {
+                                console.log('Jugadores recuperados:', existingPlayers.length);
+                                setPlayers(existingPlayers);
+                            }
+                            break;
                         } else {
                             console.error('Error al unirse a sala:', joinError);
                         }
@@ -803,6 +824,7 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
             } finally {
                 setLoading(false);
                 setMatchmakingAttempted(true);
+                matchmakingInProgress.current = false;
             }
         };
 
@@ -810,6 +832,32 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
     }, [matchmakingAttempted, currentRoom, user]);
 
     const createNewRoom = async () => {
+        // Verificar si el jugador ya está en una sala
+        console.log('Verificando si jugador ya está en una sala...');
+        const { data: existingMembership } = await supabase
+            .from('players_online')
+            .select('room_id, rooms(*)')
+            .eq('user_id', user.id)
+            .single();
+
+        if (existingMembership) {
+            console.log('Jugador ya está en sala existente, recuperando:', existingMembership);
+            setCurrentRoom(existingMembership.rooms);
+            setRoomCode(existingMembership.rooms.code);
+
+            // Cargar jugadores de esa sala
+            const { data: playersInRoom } = await supabase
+                .from('players_online')
+                .select('*')
+                .eq('room_id', existingMembership.room_id)
+                .order('id', { ascending: true });
+
+            if (playersInRoom) {
+                setPlayers(playersInRoom);
+            }
+            return existingMembership.rooms;
+        }
+
         const code = Math.random().toString(36).substring(2, 6).toUpperCase();
         try {
             const { data: room, error: roomError } = await supabase
