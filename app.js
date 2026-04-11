@@ -903,28 +903,86 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
 
     // Iniciar partida online (2-4 jugadores)
     const startOnlineGame = () => {
-        if (players.length < 2) return;
+        console.log('[DEBUG] startOnlineGame() iniciado');
 
-        // Convertir jugadores online al formato del juego
-        const gamePlayers = players.map((p, idx) => ({
-            id: idx,
-            name: p.name,
-            isAI: false,
-            color: p.color || GAME_DATA.PLAYERS.COLORS[idx]
-        }));
+        try {
+            // Validación 1: Verificar cantidad de jugadores
+            if (!players || players.length < 2) {
+                console.warn('[DEBUG] startOnlineGame: No hay suficientes jugadores', { players });
+                return;
+            }
+            console.log('[DEBUG] Jugadores validados:', players.length, players);
 
-        // Marcar sala como playing
-        supabase.from('rooms').update({ status: 'playing' }).eq('id', currentRoom.id);
+            // Validación 2: Verificar currentRoom
+            if (!currentRoom) {
+                console.error('[DEBUG] startOnlineGame: currentRoom es null/undefined');
+                alert('Error: No se encontró la sala actual. Intenta recargar.');
+                return;
+            }
+            console.log('[DEBUG] Sala actual:', currentRoom);
 
-        // Iniciar partida
-        const gameConfig = {
-            gameDurationMs: 600 * 1000, // 10 minutos
-            isOnline: true,
-            roomId: currentRoom.id,
-            roomCode: currentRoom.code
-        };
+            // Validación 3: Verificar onStartGame
+            if (typeof onStartGame !== 'function') {
+                console.error('[DEBUG] startOnlineGame: onStartGame no es una función', onStartGame);
+                return;
+            }
 
-        onStartGame(gamePlayers, gameConfig);
+            // Convertir jugadores online al formato del juego
+            console.log('[DEBUG] Convirtiendo jugadores al formato del juego...');
+            const gamePlayers = players.map((p, idx) => {
+                console.log(`[DEBUG] Procesando jugador ${idx}:`, p);
+
+                if (!p) {
+                    console.error(`[DEBUG] Jugador ${idx} es null/undefined`);
+                    return null;
+                }
+
+                const color = p.color || GAME_DATA.PLAYERS.COLORS[idx];
+                if (!color) {
+                    console.warn(`[DEBUG] No hay color definido para jugador ${idx}, usando default`);
+                }
+
+                return {
+                    id: idx,
+                    name: p.name || `Jugador ${idx + 1}`,
+                    isAI: false,
+                    color: color || '#FF6B6B'
+                };
+            }).filter(p => p !== null); // Eliminar nulos
+
+            console.log('[DEBUG] gamePlayers convertidos:', gamePlayers);
+
+            if (gamePlayers.length < 2) {
+                console.error('[DEBUG] No hay suficientes jugadores válidos después de la conversión');
+                return;
+            }
+
+            // Marcar sala como playing
+            console.log('[DEBUG] Marcando sala como playing...');
+            supabase.from('rooms').update({ status: 'playing' }).eq('id', currentRoom.id)
+                .then(({ error }) => {
+                    if (error) console.error('[DEBUG] Error marcando sala como playing:', error);
+                    else console.log('[DEBUG] Sala marcada como playing exitosamente');
+                });
+
+            // Iniciar partida
+            const gameConfig = {
+                gameDurationMs: 600 * 1000, // 10 minutos
+                isOnline: true,
+                roomId: currentRoom.id,
+                roomCode: currentRoom.code
+            };
+            console.log('[DEBUG] gameConfig:', gameConfig);
+
+            console.log('[DEBUG] Llamando a onStartGame...');
+            onStartGame(gamePlayers, gameConfig);
+            console.log('[DEBUG] onStartGame completado');
+
+        } catch (error) {
+            console.error('[DEBUG] ERROR CRÍTICO en startOnlineGame:', error);
+            console.error('[DEBUG] Stack trace:', error.stack);
+            alert('Error al iniciar la partida: ' + error.message);
+        }
     };
 
     // Suscripción Realtime a jugadores
@@ -2022,72 +2080,135 @@ const App = () => {
         }
     }, [gameState, players, winner]);
     const startGame = (playerData) => {
-        setGameStartTime(Date.now());
-        playAudio('background-audio');
-        const initialProperties = {};
-         GAME_DATA.BOARD.forEach(square => {
-            if (square.type === 'property') {
-                initialProperties[square.id] = { ...square, owner: null, visitCount: 0 };
+        console.log('[DEBUG] startGame() iniciado con playerData:', playerData);
+
+        try {
+            // Validación de entrada
+            if (!playerData || !Array.isArray(playerData) || playerData.length === 0) {
+                console.error('[DEBUG] startGame: playerData inválido', playerData);
+                alert('Error: Datos de jugadores inválidos');
+                return;
             }
-        });
-        setProperties(initialProperties);
-        const initialCapitals = GAME_DATA.PLAYERS.INITIAL_MONEY; 
-        
-        const availableProfiles = [...GAME_DATA.AI_PROFILES];
-        
-        const gamePlayers = playerData.map((p, index) => {
-            let assignedProfile = null;
-            let playerName = p.name;
-            
-            if (p.isAI) {
-                const existingProfileIndex = availableProfiles.findIndex(prof => prof.name === p.name);
-                
-                if (existingProfileIndex !== -1) {
-                    assignedProfile = availableProfiles.splice(existingProfileIndex, 1)[0];
-                } else {
-                    if (availableProfiles.length > 0) {
-                        const randomIndex = Math.floor(Math.random() * availableProfiles.length);
-                        assignedProfile = availableProfiles.splice(randomIndex, 1)[0];
-                    } else {
-                        const profiles = GAME_DATA.AI_PROFILES;
-                        assignedProfile = profiles[Math.floor(Math.random() * profiles.length)];
-                    }
+
+            setGameStartTime(Date.now());
+
+            try {
+                playAudio('background-audio');
+            } catch (audioError) {
+                console.warn('[DEBUG] Error al reproducir audio:', audioError);
+            }
+
+            const initialProperties = {};
+            GAME_DATA.BOARD.forEach(square => {
+                if (square.type === 'property') {
+                    initialProperties[square.id] = { ...square, owner: null, visitCount: 0 };
                 }
-                playerName = assignedProfile.name;
+            });
+            setProperties(initialProperties);
+
+            const initialCapitals = GAME_DATA.PLAYERS.INITIAL_MONEY;
+            console.log('[DEBUG] INITIAL_MONEY:', initialCapitals);
+
+            const availableProfiles = [...GAME_DATA.AI_PROFILES];
+
+            const gamePlayers = playerData.map((p, index) => {
+                console.log(`[DEBUG] Procesando playerData[${index}]:`, p);
+
+                if (!p) {
+                    console.error(`[DEBUG] playerData[${index}] es null/undefined`);
+                    return null;
+                }
+
+                let assignedProfile = null;
+                let playerName = p.name || `Jugador ${index + 1}`;
+
+                if (p.isAI) {
+                    const existingProfileIndex = availableProfiles.findIndex(prof => prof.name === p.name);
+
+                    if (existingProfileIndex !== -1) {
+                        assignedProfile = availableProfiles.splice(existingProfileIndex, 1)[0];
+                    } else {
+                        if (availableProfiles.length > 0) {
+                            const randomIndex = Math.floor(Math.random() * availableProfiles.length);
+                            assignedProfile = availableProfiles.splice(randomIndex, 1)[0];
+                        } else {
+                            const profiles = GAME_DATA.AI_PROFILES;
+                            assignedProfile = profiles[Math.floor(Math.random() * profiles.length)];
+                        }
+                    }
+                    playerName = assignedProfile.name;
+                }
+
+                const playerColor = GAME_DATA.PLAYERS.COLORS[index];
+                if (!playerColor) {
+                    console.warn(`[DEBUG] No hay color definido para índice ${index}`);
+                }
+
+                const initialMoney = initialCapitals[index];
+                if (initialMoney === undefined) {
+                    console.warn(`[DEBUG] No hay dinero inicial definido para índice ${index}`);
+                }
+
+                return {
+                    ...p,
+                    id: index,
+                    name: playerName,
+                    position: 1,
+                    money: initialMoney || 7000,
+                    color: playerColor || '#FF6B6B',
+                    properties: [],
+                    skipTurns: 0,
+                    aiProfile: assignedProfile,
+                };
+            }).filter(p => p !== null);
+
+            console.log('[DEBUG] gamePlayers procesados:', gamePlayers);
+
+            if (gamePlayers.length === 0) {
+                console.error('[DEBUG] No hay jugadores válidos después del procesamiento');
+                alert('Error: No se pudieron procesar los jugadores');
+                return;
             }
 
-            return {
-                ...p,
-                id: index,
-                name: playerName,
-                position: 1,
-                money: initialCapitals[index],
-                color: GAME_DATA.PLAYERS.COLORS[index],
-                properties: [],
-                skipTurns: 0,
-                aiProfile: assignedProfile,
+            let duration = gamePlayers.length === 2 ? 600 : (gamePlayers.length === 3 ? 1200 : 1800);
+            const now = Date.now();
+            const serverMessage = {
+                event: "GAME_SETUP",
+                gameStartTime: now,
+                gameDurationMs: duration * 1000,
+                imageCycleDurationMs: 13000,
+                serverTime: now + 50
             };
-        });
+            console.log('[DEBUG] serverMessage:', serverMessage);
 
-        let duration = gamePlayers.length === 2 ? 600 : (gamePlayers.length === 3 ? 1200 : 1800);
-        const now = Date.now();
-        const serverMessage = {
-            event: "GAME_SETUP",
-            gameStartTime: now,
-            gameDurationMs: duration * 1000,
-            imageCycleDurationMs: 13000,
-            serverTime: now + 50
-        };
-        setClientServerOffset(serverMessage.serverTime - Date.now());
-        setGameConfig(serverMessage);
-        setPlayers(gamePlayers);
-        setCurrentPlayerIndex(0);
-        setGameState('AWAITING_ROLL');
-        setWinner(null);
-        setShowWinnerModal(false);
-        const firstPlayer = gamePlayers[0];
-        setGameMessage(`${GAME_DATA.UI.COLOR_TO_EMOJI[firstPlayer.color]} Es el turno de ${firstPlayer.name}.`);
-        setActiveScreen('juego');
+            setClientServerOffset(serverMessage.serverTime - Date.now());
+            setGameConfig(serverMessage);
+            setPlayers(gamePlayers);
+            setCurrentPlayerIndex(0);
+            setGameState('AWAITING_ROLL');
+            setWinner(null);
+            setShowWinnerModal(false);
+
+            const firstPlayer = gamePlayers[0];
+            console.log('[DEBUG] firstPlayer:', firstPlayer);
+
+            if (!firstPlayer || !firstPlayer.color) {
+                console.error('[DEBUG] firstPlayer o firstPlayer.color es undefined');
+            }
+
+            const emoji = firstPlayer?.color ? GAME_DATA.UI.COLOR_TO_EMOJI[firstPlayer.color] : '⚪';
+            const playerName = firstPlayer?.name || 'Jugador 1';
+            setGameMessage(`${emoji} Es el turno de ${playerName}.`);
+            console.log('[DEBUG] Mensaje de juego establecido');
+
+            setActiveScreen('juego');
+            console.log('[DEBUG] Pantalla cambiada a juego');
+
+        } catch (error) {
+            console.error('[DEBUG] ERROR CRÍTICO en startGame:', error);
+            console.error('[DEBUG] Stack trace:', error.stack);
+            alert('Error al iniciar el juego: ' + error.message);
+        }
     };
     const handleRestartGame = () => {
         localStorage.removeItem('lga_auto_save_session');
