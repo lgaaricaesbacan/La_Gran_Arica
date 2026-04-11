@@ -1000,8 +1000,28 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
             if (error) {
                 console.error('Error cargando jugadores:', error);
             } else {
-                console.log('Jugadores cargados:', data?.length || 0, data);
-                if (data) setPlayers(data);
+                console.log('Jugadores cargados desde BD:', data?.length || 0, data);
+
+                // Deduplicar por user_id para evitar jugadores fantasma
+                if (data) {
+                    const uniquePlayers = [];
+                    const seenUserIds = new Set();
+
+                    for (const player of data) {
+                        if (seenUserIds.has(player.user_id)) {
+                            console.warn('Jugador duplicado en BD, ignorando:', player.name, player.user_id);
+                            continue;
+                        }
+                        seenUserIds.add(player.user_id);
+                        uniquePlayers.push(player);
+                    }
+
+                    if (uniquePlayers.length !== data.length) {
+                        console.warn(`Deduplicación: ${data.length} → ${uniquePlayers.length} jugadores`);
+                    }
+
+                    setPlayers(uniquePlayers);
+                }
             }
         };
         loadPlayers();
