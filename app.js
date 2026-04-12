@@ -589,6 +589,7 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
     const [availableRooms, setAvailableRooms] = React.useState([]);
     const [manualCode, setManualCode] = React.useState('');
     const matchmakingInProgress = React.useRef(false);
+    const gameStarting = React.useRef(false);
 
     // Función para iniciar partida local con IA aleatoria
     const startLocalGameWithAI = () => {
@@ -848,13 +849,17 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
     const createNewRoom = async () => {
         // Verificar si el jugador ya está en una sala
         console.log('Verificando si jugador ya está en una sala...');
-        const { data: existingMembership } = await supabase
+        const { data: existingMemberships, error: membershipError } = await supabase
             .from('players_online')
             .select('room_id, rooms(*)')
-            .eq('user_id', user.id)
-            .single();
+            .eq('user_id', user.id);
 
-        if (existingMembership) {
+        if (membershipError) {
+            console.warn('Error verificando membresía existente:', membershipError);
+        }
+
+        if (existingMemberships && existingMemberships.length > 0) {
+            const existingMembership = existingMemberships[0];
             console.log('Jugador ya está en sala existente, recuperando:', existingMembership);
             setCurrentRoom(existingMembership.rooms);
             setRoomCode(existingMembership.rooms.code);
@@ -965,12 +970,19 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
 
     // Iniciar partida online (2-4 jugadores)
     const startOnlineGame = () => {
+        // Evitar ejecuciones simultáneas o repetidas
+        if (gameStarting.current) {
+            console.log('[DEBUG] startOnlineGame: Partida ya está iniciando, ignorando llamada duplicada');
+            return;
+        }
+        gameStarting.current = true;
         console.log('[DEBUG] startOnlineGame() iniciado');
 
         try {
             // Validación 1: Verificar cantidad de jugadores
             if (!players || players.length < 2) {
                 console.warn('[DEBUG] startOnlineGame: No hay suficientes jugadores', { players });
+                gameStarting.current = false;
                 return;
             }
             console.log('[DEBUG] Jugadores validados:', players.length, players);
@@ -1044,6 +1056,7 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
             console.error('[DEBUG] ERROR CRÍTICO en startOnlineGame:', error);
             console.error('[DEBUG] Stack trace:', error.stack);
             alert('Error al iniciar la partida: ' + error.message);
+            gameStarting.current = false;
         }
     };
 
@@ -1088,6 +1101,26 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
         };
         loadPlayers();
 
+        // Suscribirse a cambios en la sala (para detectar inicio de partida)
+        const roomSubscription = supabase
+            .channel(`room-status-${currentRoom.id}`)
+            .on('postgres_changes', {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'rooms',
+                filter: `id=eq.${currentRoom.id}`
+            }, (payload) => {
+                console.log('Room status changed:', payload.new);
+                if (payload.new.status === 'playing' && activeScreen === 'lobbyOnline') {
+                    console.log('Sala iniciada por otro jugador, uniéndose...');
+                    // Cargar jugadores actuales e iniciar
+                    loadPlayers().then(() => {
+                        startOnlineGame();
+                    });
+                }
+            })
+            .subscribe();
+
         const subscription = supabase
             .channel(`room-${currentRoom.id}`)
             .on('postgres_changes', {
@@ -1116,8 +1149,11 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
             })
             .subscribe();
 
-        return () => subscription.unsubscribe();
-    }, [currentRoom]);
+        return () => {
+            subscription.unsubscribe();
+            roomSubscription.unsubscribe();
+        };
+    }, [currentRoom, activeScreen]);
 
     // Unirse por código (opción manual para amigos)
     const joinRoomByCode = async () => {
