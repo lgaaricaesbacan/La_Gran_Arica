@@ -778,28 +778,25 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                             console.log('Unido exitosamente a sala:', room.code);
                             joinedRoom = room;
 
-                            // Cargar jugadores existentes de la sala
-                            const { data: existingPlayers } = await supabase
+                            // Cargar TODOS los jugadores de la sala (incluyendo el recién insertado)
+                            const { data: allPlayers } = await supabase
                                 .from('players_online')
                                 .select('*')
                                 .eq('room_id', room.id)
                                 .order('id', { ascending: true });
 
-                            // Agregar el jugador actual al final
-                            const joinedPlayer = {
-                                id: Date.now(), // ID temporal
-                                room_id: room.id,
-                                user_id: user.id,
-                                name: user.user_metadata?.full_name || 'Jugador',
-                                email: user.email || user.user_metadata?.email || '',
-                                photo: user.user_metadata?.avatar_url || '',
-                                color: GAME_DATA.PLAYERS.COLORS[count] || GAME_DATA.PLAYERS.COLORS[0],
-                                is_ready: true,
-                                position: 1,
-                                money: GAME_DATA.PLAYERS.INITIAL_MONEY[count]
-                            };
+                            // Deduplicar por user_id por seguridad
+                            const uniquePlayers = [];
+                            const seenUserIds = new Set();
+                            for (const player of allPlayers || []) {
+                                if (!seenUserIds.has(player.user_id)) {
+                                    seenUserIds.add(player.user_id);
+                                    uniquePlayers.push(player);
+                                }
+                            }
 
-                            setPlayers(existingPlayers ? [...existingPlayers, joinedPlayer] : [joinedPlayer]);
+                            console.log('Jugadores cargados tras unirse:', uniquePlayers.length);
+                            setPlayers(uniquePlayers);
                             break;
                         } else if (joinError.code === '23505') {
                             // Error: jugador ya existe en esta sala ( UNIQUE constraint violation )
@@ -813,9 +810,19 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                                 .eq('room_id', room.id)
                                 .order('id', { ascending: true });
 
-                            if (existingPlayers) {
-                                console.log('Jugadores recuperados:', existingPlayers.length);
-                                setPlayers(existingPlayers);
+                            // Deduplicar por user_id
+                            const uniquePlayers = [];
+                            const seenUserIds = new Set();
+                            for (const player of existingPlayers || []) {
+                                if (!seenUserIds.has(player.user_id)) {
+                                    seenUserIds.add(player.user_id);
+                                    uniquePlayers.push(player);
+                                }
+                            }
+
+                            if (uniquePlayers) {
+                                console.log('Jugadores recuperados:', uniquePlayers.length);
+                                setPlayers(uniquePlayers);
                             }
                             break;
                         } else {
