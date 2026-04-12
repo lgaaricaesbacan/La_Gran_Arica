@@ -688,6 +688,20 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                 // Primero limpiar salas huérfanas
                 await cleanupEmptyRooms();
 
+                // Limpiar cualquier membresía previa de este usuario
+                // (registros residuales de sesiones anteriores que no se borraron)
+                console.log('Limpiando membresías previas del usuario...');
+                const { error: cleanupError } = await supabase
+                    .from('players_online')
+                    .delete()
+                    .eq('user_id', user.id);
+
+                if (cleanupError) {
+                    console.warn('No se pudieron limpiar membresías previas:', cleanupError);
+                } else {
+                    console.log('Membresías previas limpiadas exitosamente');
+                }
+
                 // Buscar salas "waiting" ordenadas por created_at (las más antiguas primero)
                 console.log('Buscando salas disponibles...');
                 const { data: rooms, error: roomsError } = await supabase
@@ -1469,7 +1483,7 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
 
                         {canStart && !isFull && (
                             <div className="lobby-timer waiting">
-                                Esperando 4to: {formatTime(timeLeft)}
+                                Esperando jugadores: {formatTime(timeLeft)}
                             </div>
                         )}
                         {isAlone && (
@@ -1522,7 +1536,9 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                                 )}
                                 {canStart && !isFull && (
                                     <p className="lobby-message">
-                                        ¡Bien! Esperando un 4to jugador...<br/>
+                                        ¡Bien! Sala con {players.length} jugadores.<br/>
+                                        {players.length === 2 ? 'Esperando un 3er jugador...' :
+                                         players.length === 3 ? 'Esperando un 4to jugador...' : 'Esperando más jugadores...'}<br/>
                                         O inicia ahora con los {players.length} jugadores
                                     </p>
                                 )}

@@ -969,6 +969,19 @@ body.light-theme .dice-dot {
     gap: 15px;
     justify-content: center;
     margin-top: 10px;
+    flex-wrap: wrap; /* Permitir que los botones se envuelvan en pantallas pequeñas */
+}
+
+/* Asegurar que el lobby online tenga suficiente espacio */
+#lobbyOnline .inicio-frame {
+    min-height: 95vh; /* Usar más altura de la pantalla */
+    height: auto;
+}
+
+#lobbyOnline .inicio-main {
+    justify-content: flex-start; /* Alinear arriba en lugar de centrar */
+    padding-top: 20px;
+    padding-bottom: 100px; /* Espacio adicional al final para scroll */
 }
 
 .button-secondary {
