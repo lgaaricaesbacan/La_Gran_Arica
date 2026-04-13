@@ -1047,14 +1047,18 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                     else console.log('[DEBUG] Sala marcada como playing exitosamente');
                 });
 
-            // Iniciar partida
+            // Iniciar partida - duración según cantidad de jugadores
+            // 2 jugadores: 10 min, 3 jugadores: 20 min, 4 jugadores: 30 min
+            const playerCount = gamePlayers.length;
+            const durationMinutes = playerCount === 2 ? 10 : (playerCount === 3 ? 20 : 30);
             const gameConfig = {
-                gameDurationMs: 600 * 1000, // 10 minutos
+                gameDurationMs: durationMinutes * 60 * 1000,
                 isOnline: true,
                 roomId: currentRoom.id,
                 roomCode: currentRoom.code,
                 userId: user?.id // Guardar el user_id del jugador actual
             };
+            console.log('[DEBUG] Duración de partida:', durationMinutes, 'minutos para', playerCount, 'jugadores');
             console.log('[DEBUG] gameConfig:', gameConfig);
 
             console.log('[DEBUG] Llamando a onStartGame...');
@@ -1390,7 +1394,9 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
     if (currentRoom) {
         const isFull = players.length >= 4;
         const isAlone = players.length === 1;
-        const canStart = players.length >= 2;
+        // Solo el anfitrión (primer jugador en la sala) puede iniciar la partida
+        const isHost = players.length > 0 && players[0]?.user_id === user?.id;
+        const canStart = players.length >= 2 && isHost;
 
         return (
             <div id="lobbyOnline" className="screen active">
@@ -1584,7 +1590,13 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                                         ¡Bien! Sala con {players.length} jugadores.<br/>
                                         {players.length === 2 ? 'Esperando un 3er jugador...' :
                                          players.length === 3 ? 'Esperando un 4to jugador...' : 'Esperando más jugadores...'}<br/>
-                                        O inicia ahora con los {players.length} jugadores
+                                        Eres el anfitrión. Puedes iniciar cuando quieras.
+                                    </p>
+                                )}
+                                {!canStart && players.length >= 2 && !isFull && !isHost && (
+                                    <p className="lobby-message">
+                                        Sala con {players.length} jugadores listos.<br/>
+                                        Esperando a que el anfitrión ({players[0]?.name}) inicie la partida...
                                     </p>
                                 )}
                             </div>
@@ -2017,7 +2029,7 @@ const App = () => {
     React.useEffect(() => {
         if (activeScreen === 'juego' && gameState !== 'GAME_OVER' && gameConfig) {
             const sessionData = {
-                players, 
+                players,
                 properties,
                 currentPlayerIndex,
                 gameState,
@@ -2025,6 +2037,7 @@ const App = () => {
                 gameConfig,
                 clientServerOffset,
                 turnStartPos,
+                onlineGameState, // Guardar estado online para recuperación de sesión
                 timestamp: Date.now()
             };
             localStorage.setItem('lga_auto_save_session', JSON.stringify(sessionData));
@@ -2044,6 +2057,13 @@ const App = () => {
                     setGameConfig(data.gameConfig);
                     setClientServerOffset(data.clientServerOffset);
                     setTurnStartPos(data.turnStartPos);
+
+                    // Restaurar estado online si existe
+                    if (data.onlineGameState) {
+                        setOnlineGameState(data.onlineGameState);
+                        console.log("[DEBUG] Estado online restaurado:", data.onlineGameState);
+                    }
+
                     if (data.gameState === 'PLAYER_MOVING' || data.gameState === 'AWAITING_ACTION') {
                         const currentPlayer = data.players[data.currentPlayerIndex];
                         const startPos = data.turnStartPos || currentPlayer.position;
@@ -2072,6 +2092,42 @@ const App = () => {
             }
         }
     }, []);
+
+    // Guardar sesión antes de cerrar la página o cambiar de pestaña
+    React.useEffect(() => {
+        const saveBeforeUnload = () => {
+            if (activeScreen === 'juego' && gameState !== 'GAME_OVER' && gameConfig) {
+                const sessionData = {
+                    players,
+                    properties,
+                    currentPlayerIndex,
+                    gameState,
+                    gameMessage,
+                    gameConfig,
+                    clientServerOffset,
+                    turnStartPos,
+                    onlineGameState,
+                    timestamp: Date.now()
+                };
+                localStorage.setItem('lga_auto_save_session', JSON.stringify(sessionData));
+            }
+        };
+
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'hidden') {
+                saveBeforeUnload();
+            }
+        };
+
+        window.addEventListener('beforeunload', saveBeforeUnload);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            window.removeEventListener('beforeunload', saveBeforeUnload);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, [activeScreen, gameState, gameConfig, players, properties, currentPlayerIndex, gameMessage, clientServerOffset, turnStartPos, onlineGameState]);
+
     const [winner, setWinner] = React.useState(null);
     const [showWinnerModal, setShowWinnerModal] = React.useState(false);
     const [showPopup, setShowPopup] = React.useState(false);
@@ -2096,6 +2152,14 @@ const App = () => {
         if (afkTimerRef.current) clearTimeout(afkTimerRef.current);
         setAfkActive(false);
         if (activeScreen !== 'juego' || gameState === 'GAME_OVER' || gameState === 'PLAYER_MOVING') return;
+
+        // En modo online, solo activar AFK si es el turno del jugador local
+        if (onlineGameState.isOnline) {
+            const isLocalPlayerTurn = players[currentPlayerIndex]?.userId === onlineGameState.userId ||
+                (!players[currentPlayerIndex]?.userId && currentPlayerIndex === players.findIndex(p => p.userId === onlineGameState.userId));
+            if (!isLocalPlayerTurn) return; // No activar AFK si no es mi turno
+        }
+
         let timeoutAction = null;
         if (gameState === 'AWAITING_ROLL') {
             timeoutAction = () => handleDiceRoll();
@@ -2103,7 +2167,7 @@ const App = () => {
         else if (showPopup) {
             const passAction = popupInfo.actions.find(a => a.text === 'Pasar' || a.text === 'Continuar' || a.text === 'Aceptar' || a.isCloseButton);
             const jailAction = popupInfo.actions.find(a => a.text === 'Ir a la Cárcel');
-            
+
             if (passAction) timeoutAction = passAction.handler;
             else if (jailAction) timeoutAction = jailAction.handler;
             else if (popupInfo.actions.length > 0) timeoutAction = popupInfo.actions[0].handler;
@@ -2121,7 +2185,7 @@ const App = () => {
         return () => {
             if (afkTimerRef.current) clearTimeout(afkTimerRef.current);
         };
-    }, [gameState, showPopup, showWinnerModal, activeScreen, currentPlayerIndex, popupInfo]);
+    }, [gameState, showPopup, showWinnerModal, activeScreen, currentPlayerIndex, popupInfo, onlineGameState, players]);
 
     /* --- SUSCRIPCIÓN REALTIME A GAME_ACTIONS (MODO ONLINE) --- */
     React.useEffect(() => {
@@ -2666,6 +2730,13 @@ const App = () => {
     };
     const handleRestartGame = () => {
         localStorage.removeItem('lga_auto_save_session');
+
+        // Limpiar suscripción a game_actions si existe
+        if (gameActionsSubscriptionRef.current) {
+            gameActionsSubscriptionRef.current.unsubscribe();
+            gameActionsSubscriptionRef.current = null;
+        }
+
         setShowWinnerModal(false);
         setWinner(null);
         setGameConfig(null);
@@ -2673,6 +2744,12 @@ const App = () => {
         setProperties({});
         setGameState('AWAITING_ROLL');
         setGameMessage('¡Bienvenido a La Gran Arica! Configura tu partida.');
+        setOnlineGameState({
+            isOnline: false,
+            roomId: null,
+            userId: null,
+            playerMapping: {}
+        });
         setActiveScreen('inicio');
     };
     const handleDiceRoll = async () => {
@@ -3080,17 +3157,36 @@ const App = () => {
                          </h3>
                         <div className="controls-panel__main-actions">
                             <button className="button" onClick={toggleSound}>Sonido</button>
-                            <div 
-                                className={`dice-area ${(gameState !== 'AWAITING_ROLL' || gameState === 'GAME_OVER' || isTurnAI) ? 'disabled' : ''}`}
-                                onClick={() => {
-                                    if (gameState === 'AWAITING_ROLL' && gameState !== 'GAME_OVER' && !isTurnAI) {
-                                        handleDiceRoll();
-                                    }
-                                }}
-                                title={isTurnAI ? "Turno de la IA" : (gameState === 'AWAITING_ROLL' ? "¡Toca para lanzar!" : "Espera tu turno")}
-                            >
-                                <DiceFace value={dice[0]} />
-                            </div>
+                            {
+                                (() => {
+                                    // Verificar si es el turno del jugador local en modo online
+                                    const isLocalPlayerTurn = !onlineGameState.isOnline ||
+                                        (players[currentPlayerIndex]?.userId === onlineGameState.userId) ||
+                                        (!players[currentPlayerIndex]?.userId && currentPlayerIndex === players.findIndex(p => p.userId === onlineGameState.userId));
+
+                                    const canRoll = gameState === 'AWAITING_ROLL' &&
+                                                   gameState !== 'GAME_OVER' &&
+                                                   !isTurnAI &&
+                                                   isLocalPlayerTurn;
+
+                                    return (
+                                        <div
+                                            className={`dice-area ${!canRoll ? 'disabled' : ''}`}
+                                            onClick={() => {
+                                                if (canRoll) {
+                                                    handleDiceRoll();
+                                                }
+                                            }}
+                                            title={isTurnAI ? "Turno de la IA" :
+                                                   !isLocalPlayerTurn ? "Espera tu turno (turno de otro jugador)" :
+                                                   gameState === 'AWAITING_ROLL' ? "¡Toca para lanzar!" :
+                                                   "Espera tu turno"}
+                                        >
+                                            <DiceFace value={dice[0]} />
+                                        </div>
+                                    );
+                                })()
+                            }
                             <button className="button" onClick={() => {
                                 if (!document.fullscreenElement) {
                                     document.documentElement.requestFullscreen().catch(e => console.log("Full Screen bloqueado."));
