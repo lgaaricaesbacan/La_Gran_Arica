@@ -1027,7 +1027,8 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                     id: idx,
                     name: p.name || `Jugador ${idx + 1}`,
                     isAI: false,
-                    color: color || '#FF6B6B'
+                    color: color || '#FF6B6B',
+                    userId: p.user_id // Guardar el user_id de Supabase
                 };
             }).filter(p => p !== null); // Eliminar nulos
 
@@ -1051,7 +1052,8 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                 gameDurationMs: 600 * 1000, // 10 minutos
                 isOnline: true,
                 roomId: currentRoom.id,
-                roomCode: currentRoom.code
+                roomCode: currentRoom.code,
+                userId: user?.id // Guardar el user_id del jugador actual
             };
             console.log('[DEBUG] gameConfig:', gameConfig);
 
@@ -1953,6 +1955,16 @@ const App = () => {
 
     const [isSoundEnabled, setIsSoundEnabled] = React.useState(true);
 
+    // Estado para juego online
+    const [onlineGameState, setOnlineGameState] = React.useState({
+        isOnline: false,
+        roomId: null,
+        userId: null,
+        playerMapping: {} // Mapeo de índice local a user_id
+    });
+    const gameActionsSubscriptionRef = React.useRef(null);
+    const processedActionsRef = React.useRef(new Set()); // Para evitar procesar acciones duplicadas
+
     /* --- CEREBRO DE LA IA --- */
     React.useEffect(() => {
         if (gameState === 'GAME_OVER' || activeScreen !== 'juego') return;
@@ -2110,6 +2122,305 @@ const App = () => {
             if (afkTimerRef.current) clearTimeout(afkTimerRef.current);
         };
     }, [gameState, showPopup, showWinnerModal, activeScreen, currentPlayerIndex, popupInfo]);
+
+    /* --- SUSCRIPCIÓN REALTIME A GAME_ACTIONS (MODO ONLINE) --- */
+    React.useEffect(() => {
+        // Solo suscribirse si es juego online y tenemos roomId
+        if (!onlineGameState.isOnline || !onlineGameState.roomId || activeScreen !== 'juego') {
+            // Limpiar suscripción si existe
+            if (gameActionsSubscriptionRef.current) {
+                gameActionsSubscriptionRef.current.unsubscribe();
+                gameActionsSubscriptionRef.current = null;
+            }
+            return;
+        }
+
+        console.log('[DEBUG] Suscribiéndose a game_actions para room:', onlineGameState.roomId);
+
+        const subscription = supabase
+            .channel(`game-actions-${onlineGameState.roomId}`)
+            .on('postgres_changes', {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'game_actions',
+                filter: `room_id=eq.${onlineGameState.roomId}`
+            }, (payload) => {
+                const action = payload.new;
+                console.log('[DEBUG] Nueva acción recibida:', action);
+
+                // Evitar procesar acciones duplicadas
+                if (processedActionsRef.current.has(action.id)) {
+                    console.log('[DEBUG] Acción ya procesada, ignorando:', action.id);
+                    return;
+                }
+                processedActionsRef.current.add(action.id);
+
+                // Limpiar el set periódicamente para evitar crecimiento infinito
+                if (processedActionsRef.current.size > 1000) {
+                    processedActionsRef.current.clear();
+                }
+
+                // No procesar nuestras propias acciones (ya aplicadas localmente)
+                if (action.player_id === onlineGameState.userId) {
+                    console.log('[DEBUG] Acción propia, ignorando');
+                    return;
+                }
+
+                // Procesar la acción según su tipo
+                handleIncomingGameAction(action);
+            })
+            .subscribe();
+
+        gameActionsSubscriptionRef.current = subscription;
+
+        return () => {
+            console.log('[DEBUG] Desuscribiendo de game_actions');
+            subscription.unsubscribe();
+            gameActionsSubscriptionRef.current = null;
+        };
+    }, [onlineGameState.isOnline, onlineGameState.roomId, activeScreen]);
+
+    /* --- MANEJADOR DE ACCIONES ENTRANTES --- */
+    const handleIncomingGameAction = async (action) => {
+        console.log('[DEBUG] Procesando acción entrante:', action);
+
+        try {
+            switch (action.action_type) {
+                case 'dice_roll':
+                    await applyOpponentDiceRoll(action.action_data);
+                    break;
+                case 'buy_property':
+                    await applyOpponentBuyProperty(action.action_data);
+                    break;
+                case 'sell_property':
+                    await applyOpponentSellProperty(action.action_data);
+                    break;
+                case 'pass_turn':
+                    await applyOpponentPassTurn(action.action_data);
+                    break;
+                case 'jail':
+                    await applyOpponentJail(action.action_data);
+                    break;
+                case 'pay_rent':
+                    await applyOpponentPayRent(action.action_data);
+                    break;
+                default:
+                    console.warn('[DEBUG] Tipo de acción desconocido:', action.action_type);
+            }
+        } catch (error) {
+            console.error('[DEBUG] Error procesando acción entrante:', error);
+        }
+    };
+
+    /* --- APLICADORES DE ACCIONES DE OPONENTES --- */
+    const applyOpponentDiceRoll = async (data) => {
+        const { playerIndex, diceValue, newPosition, passedStart } = data;
+        console.log('[DEBUG] Aplicando dados de oponente:', { playerIndex, diceValue, newPosition });
+
+        // Verificar que es un índice válido
+        if (playerIndex >= players.length) {
+            console.error('[DEBUG] Índice de jugador inválido:', playerIndex);
+            return;
+        }
+
+        // Animar los dados
+        setDice([diceValue, 0]);
+        setGameState('PLAYER_MOVING');
+
+        // Animar el movimiento de la ficha
+        const player = players[playerIndex];
+        const startPos = player.position;
+
+        for (let i = startPos; i < newPosition; i++) {
+            await delay(GAME_DATA.DELAYS.PAWN_STEP);
+            setPlayers(prev => prev.map((p, idx) => {
+                if (idx === playerIndex) {
+                    const nextPos = (p.position % 32) + 1;
+                    return { ...p, position: nextPos };
+                }
+                return p;
+            }));
+        }
+
+        // Si pasó por la partida, darle el dinero
+        if (passedStart) {
+            setPlayers(prev => prev.map((p, idx) => {
+                if (idx === playerIndex) {
+                    return { ...p, money: p.money + 3000 };
+                }
+                return p;
+            }));
+        }
+
+        // Aplicar el efecto de la casilla de aterrizaje
+        await handleLandingForPlayer(playerIndex, newPosition);
+    };
+
+    const handleLandingForPlayer = async (playerIndex, position) => {
+        const player = players[playerIndex];
+        const square = GAME_DATA.BOARD.find(s => s.id === position);
+
+        if (!square) return;
+
+        setGameMessage(`${GAME_DATA.UI.COLOR_TO_EMOJI[player.color]} ${player.name} llegó a ${square.name}.`);
+
+        // Para propiedades, el dueño debe decidir
+        if (square.type === 'property') {
+            const property = properties[square.id];
+            if (property.owner === null) {
+                // Propiedad sin dueño - esperar a que el jugador decida
+                // (Esto se maneja mediante la acción 'buy_property' o 'pass_turn')
+                setGameState('AWAITING_ACTION');
+            } else if (property.owner !== player.id) {
+                // Pagar renta
+                const owner = players.find(p => p.id === property.owner);
+                if (owner) {
+                    const rentAmount = property.rent;
+                    setPlayers(prev => prev.map(p => {
+                        if (p.id === player.id) return { ...p, money: p.money - rentAmount };
+                        if (p.id === owner.id) return { ...p, money: p.money + rentAmount };
+                        return p;
+                    }));
+                    setGameMessage(`${GAME_DATA.UI.COLOR_TO_EMOJI[player.color]} ${player.name} pagó $${rentAmount.toLocaleString('es-CL')} de arriendo a ${owner.name}.`);
+                }
+                setTimeout(nextTurn, GAME_DATA.DELAYS.ACTION_TO_NEXT_TURN);
+            } else {
+                // Propiedad propia - puede vender
+                setGameState('AWAITING_ACTION');
+            }
+        } else {
+            // Casillas especiales
+            handleSpecialSquareForPlayer(playerIndex, square);
+        }
+    };
+
+    const handleSpecialSquareForPlayer = async (playerIndex, square) => {
+        const player = players[playerIndex];
+        let message = '';
+        let moneyChange = 0;
+        let skipChange = 0;
+
+        switch (square.type) {
+            case 'start':
+                moneyChange = 2000;
+                message = `${GAME_DATA.UI.COLOR_TO_EMOJI[player.color]} ${player.name}: Recibe $2.000 extras.`;
+                break;
+            case 'jail':
+                skipChange = 3;
+                message = `${GAME_DATA.UI.COLOR_TO_EMOJI[player.color]} ¡Consternación! ${player.name} ha caído en la cárcel.`;
+                break;
+            case 'hospital':
+                moneyChange = -1000;
+                skipChange = 1;
+                message = `${GAME_DATA.UI.COLOR_TO_EMOJI[player.color]} ${player.name}: Pierde 1 turno y paga $1.000 por gastos médicos.`;
+                break;
+            case 'casino':
+                // El casino ya se resolvó en el lado del emisor
+                // Solo pasamos al siguiente turno
+                setTimeout(nextTurn, GAME_DATA.DELAYS.ACTION_TO_NEXT_TURN);
+                return;
+            case 'luck':
+            case 'destiny':
+                // Las cartas ya se resolvón en el lado del emisor
+                // Solo aplicamos el resultado
+                if (square.type === 'luck') {
+                    message = `${GAME_DATA.UI.COLOR_TO_EMOJI[player.color]} 🍀 ${player.name} sacó una carta de Suerte.`;
+                } else {
+                    message = `${GAME_DATA.UI.COLOR_TO_EMOJI[player.color]} ⚓ ${player.name} sacó una carta de Destino.`;
+                }
+                break;
+            default:
+                message = `${GAME_DATA.UI.COLOR_TO_EMOJI[player.color]} ${player.name} está en ${square.name}.`;
+        }
+
+        if (moneyChange !== 0 || skipChange !== 0) {
+            setPlayers(prev => prev.map((p, idx) => {
+                if (idx === playerIndex) {
+                    return { ...p, money: p.money + moneyChange, skipTurns: p.skipTurns + skipChange };
+                }
+                return p;
+            }));
+        }
+
+        setGameMessage(message);
+        setTimeout(nextTurn, GAME_DATA.DELAYS.ACTION_TO_NEXT_TURN);
+    };
+
+    const applyOpponentBuyProperty = async (data) => {
+        const { playerIndex, propertyId, price } = data;
+        console.log('[DEBUG] Aplicando compra de propiedad:', { playerIndex, propertyId, price });
+
+        setProperties(prev => ({
+            ...prev,
+            [propertyId]: { ...prev[propertyId], owner: playerIndex, visitCount: 1 }
+        }));
+
+        setPlayers(prev => prev.map((p, idx) => {
+            if (idx === playerIndex) {
+                return { ...p, money: p.money - price, properties: [...p.properties, propertyId] };
+            }
+            return p;
+        }));
+
+        const property = properties[propertyId];
+        setGameMessage(`${GAME_DATA.UI.COLOR_TO_EMOJI[players[playerIndex].color]} ${players[playerIndex].name} compró ${property.name}.`);
+
+        setTimeout(nextTurn, GAME_DATA.DELAYS.ACTION_TO_NEXT_TURN);
+    };
+
+    const applyOpponentSellProperty = async (data) => {
+        const { playerIndex, propertyId, price } = data;
+        console.log('[DEBUG] Aplicando venta de propiedad:', { playerIndex, propertyId, price });
+
+        setProperties(prev => ({
+            ...prev,
+            [propertyId]: { ...prev[propertyId], owner: null, visitCount: 0 }
+        }));
+
+        setPlayers(prev => prev.map((p, idx) => {
+            if (idx === playerIndex) {
+                return { ...p, money: p.money + price, properties: p.properties.filter(id => id !== propertyId) };
+            }
+            return p;
+        }));
+    };
+
+    const applyOpponentPassTurn = async (data) => {
+        const { playerIndex } = data;
+        console.log('[DEBUG] Aplicando paso de turno:', { playerIndex });
+
+        setGameMessage(`${GAME_DATA.UI.COLOR_TO_EMOJI[players[playerIndex].color]} ${players[playerIndex].name} ha pasado el turno.`);
+        await nextTurn();
+    };
+
+    const applyOpponentJail = async (data) => {
+        const { playerIndex } = data;
+        console.log('[DEBUG] Aplicando envío a cárcel:', { playerIndex });
+
+        setPlayers(prev => prev.map((p, idx) => {
+            if (idx === playerIndex) {
+                return { ...p, position: 25, skipTurns: 3 }; // 25 es la cárcel
+            }
+            return p;
+        }));
+
+        setGameMessage(`${GAME_DATA.UI.COLOR_TO_EMOJI[players[playerIndex].color]} ¡Consternación! ${players[playerIndex].name} va a la cárcel.`);
+        setTimeout(nextTurn, GAME_DATA.DELAYS.ACTION_TO_NEXT_TURN);
+    };
+
+    const applyOpponentPayRent = async (data) => {
+        const { fromPlayerIndex, toPlayerIndex, amount } = data;
+        console.log('[DEBUG] Aplicando pago de renta:', { fromPlayerIndex, toPlayerIndex, amount });
+
+        setPlayers(prev => prev.map((p, idx) => {
+            if (idx === fromPlayerIndex) return { ...p, money: p.money - amount };
+            if (idx === toPlayerIndex) return { ...p, money: p.money + amount };
+            return p;
+        }));
+
+        setGameMessage(`${GAME_DATA.UI.COLOR_TO_EMOJI[players[fromPlayerIndex].color]} ${players[fromPlayerIndex].name} pagó $${amount.toLocaleString('es-CL')} de arriendo a ${players[toPlayerIndex].name}.`);
+    };
+
     const viewImageToggleRef = React.useRef(false);
     const handleViewProperty = (cellId) => {
         playAudio('property-popup-audio');
@@ -2328,6 +2639,22 @@ const App = () => {
             setGameMessage(`${emoji} Es el turno de ${playerName}.`);
             console.log('[DEBUG] Mensaje de juego establecido');
 
+            // Guardar configuración de juego online si aplica
+            if (playerData.gameConfig?.isOnline) {
+                console.log('[DEBUG] Configurando juego online...');
+                const playerMapping = {};
+                gamePlayers.forEach((p, idx) => {
+                    // En modo online, el id original es el user_id de Supabase
+                    playerMapping[idx] = p.userId || idx;
+                });
+                setOnlineGameState({
+                    isOnline: true,
+                    roomId: playerData.gameConfig.roomId,
+                    userId: playerData.gameConfig.userId, // Usar el userId del gameConfig
+                    playerMapping: playerMapping
+                });
+            }
+
             setActiveScreen('juego');
             console.log('[DEBUG] Pantalla cambiada a juego');
 
@@ -2349,17 +2676,61 @@ const App = () => {
         setActiveScreen('inicio');
     };
     const handleDiceRoll = async () => {
-        if (gameState !== 'AWAITING_ROLL') return; 
+        if (gameState !== 'AWAITING_ROLL') return;
+
+        const currentPlayer = players[currentPlayerIndex];
+        if (!currentPlayer) return;
+
         playAudio('dice-roll-audio');
         setGameState('PLAYER_MOVING');
+
+        // Generar valor del dado
+        const d1 = Math.floor(Math.random() * 6) + 1;
+
+        // Calcular nueva posición antes de animar
+        const startPos = currentPlayer.position;
+        let newPos = startPos;
+        let passedStart = false;
+
+        for (let i = 0; i < d1; i++) {
+            newPos = (newPos % 32) + 1;
+            if (newPos === 1 && startPos + i + 1 > 32) {
+                passedStart = true;
+            }
+        }
+
+        // Si es modo online, enviar la acción a Supabase
+        if (onlineGameState.isOnline && onlineGameState.roomId) {
+            console.log('[DEBUG] Enviando acción dice_roll a Supabase');
+            try {
+                await supabase.from('game_actions').insert({
+                    room_id: onlineGameState.roomId,
+                    player_id: onlineGameState.userId,
+                    action_type: 'dice_roll',
+                    action_data: {
+                        playerIndex: currentPlayerIndex,
+                        diceValue: d1,
+                        startPosition: startPos,
+                        newPosition: newPos,
+                        passedStart: passedStart
+                    }
+                });
+                console.log('[DEBUG] Acción dice_roll enviada exitosamente');
+            } catch (error) {
+                console.error('[DEBUG] Error enviando acción dice_roll:', error);
+            }
+        }
+
         const animationInterval = setInterval(() => {
             setDice([Math.floor(Math.random() * 6) + 1, 0]);
         }, GAME_DATA.DELAYS.DICE_ANIMATION_INTERVAL);
+
         setTimeout(async () => {
             clearInterval(animationInterval);
-            const d1 = Math.floor(Math.random() * 6) + 1;
             setDice([d1, 0]);
             await delay(GAME_DATA.DELAYS.DICE_ROLL_TO_MOVE);
+
+            // Animar el movimiento
             for (let i = 0; i < d1; i++) {
                 setCurrentPlayerIndex(currentIndex => {
                     setPlayers(currentPlayers => {
@@ -2571,6 +2942,20 @@ const App = () => {
     const sendToJail = async (playerId) => {
         setShowPopup(false);
         const player = players.find(p => p.id === playerId);
+        const playerIndex = players.findIndex(p => p.id === playerId);
+
+        // Enviar acción en modo online
+        if (onlineGameState.isOnline && onlineGameState.roomId && playerIndex !== -1) {
+            await supabase.from('game_actions').insert({
+                room_id: onlineGameState.roomId,
+                player_id: onlineGameState.userId,
+                action_type: 'jail',
+                action_data: {
+                    playerIndex: playerIndex
+                }
+            });
+        }
+
         setPlayers(prev => prev.map(p => p.id === playerId ? { ...p, position: 25, skipTurns: 3 } : p));
         setGameMessage(`${GAME_DATA.UI.COLOR_TO_EMOJI[player.color]} ${player.name} fue enviado a la Cárcel.`);
         await delay(GAME_DATA.DELAYS.ACTION_TO_NEXT_TURN); nextTurn();
@@ -2580,6 +2965,22 @@ const App = () => {
         const player = players[currentPlayerIndex];
         const propName = GAME_DATA.BOARD.find(b => b.id === squareId).name.replace(/\n/, ' ');
         setGameMessage(`${GAME_DATA.UI.COLOR_TO_EMOJI[player.color]} ${player.name} compró ${propName}.`);
+
+        // Enviar acción en modo online
+        if (onlineGameState.isOnline && onlineGameState.roomId) {
+            const prop = properties[squareId];
+            await supabase.from('game_actions').insert({
+                room_id: onlineGameState.roomId,
+                player_id: onlineGameState.userId,
+                action_type: 'buy_property',
+                action_data: {
+                    playerIndex: currentPlayerIndex,
+                    propertyId: squareId,
+                    price: prop.price
+                }
+            });
+        }
+
         setCurrentPlayerIndex(currentIndex => {
             const prop = properties[squareId];
             setPlayers(curr => curr.map((p, i) => i === currentIndex ? { ...p, money: p.money - prop.price, properties: [...p.properties, squareId] } : p));
@@ -2593,8 +2994,24 @@ const App = () => {
         const player = players[currentPlayerIndex];
         const propName = GAME_DATA.BOARD.find(b => b.id === squareId).name.replace(/\n/, ' ');
         setGameMessage(`${GAME_DATA.UI.COLOR_TO_EMOJI[player.color]} ${player.name} vendió ${propName}.`);
+
+        const sellPrice = Math.floor(properties[squareId].price * 0.8);
+
+        // Enviar acción en modo online
+        if (onlineGameState.isOnline && onlineGameState.roomId) {
+            await supabase.from('game_actions').insert({
+                room_id: onlineGameState.roomId,
+                player_id: onlineGameState.userId,
+                action_type: 'sell_property',
+                action_data: {
+                    playerIndex: currentPlayerIndex,
+                    propertyId: squareId,
+                    price: sellPrice
+                }
+            });
+        }
+
         setCurrentPlayerIndex(currentIndex => {
-            const sellPrice = Math.floor(properties[squareId].price * 0.8);
             setPlayers(curr => curr.map(p => p.id === currentIndex ? { ...p, money: p.money + sellPrice, properties: p.properties.filter(id => id !== squareId) } : p));
             setProperties(curr => ({ ...curr, [squareId]: { ...curr[squareId], owner: null } }));
             return currentIndex;
@@ -2604,6 +3021,19 @@ const App = () => {
     const handlePassTurn = async () => {
         setShowPopup(false);
         setGameMessage(`${GAME_DATA.UI.COLOR_TO_EMOJI[players[currentPlayerIndex].color]} ${players[currentPlayerIndex].name} ha pasado el turno.`);
+
+        // Enviar acción en modo online
+        if (onlineGameState.isOnline && onlineGameState.roomId) {
+            await supabase.from('game_actions').insert({
+                room_id: onlineGameState.roomId,
+                player_id: onlineGameState.userId,
+                action_type: 'pass_turn',
+                action_data: {
+                    playerIndex: currentPlayerIndex
+                }
+            });
+        }
+
         await delay(GAME_DATA.DELAYS.ACTION_TO_NEXT_TURN); nextTurn();
     };
     const nextTurn = async () => {
