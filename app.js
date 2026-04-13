@@ -581,7 +581,9 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
     const [loadingMessage, setLoadingMessage] = React.useState('Buscando partidas disponibles...');
     const [currentRoom, setCurrentRoom] = React.useState(null);
     const [players, setPlayers] = React.useState([]);
-    const [timeLeft, setTimeLeft] = React.useState(180); // 3 minutos en segundos
+    // Tiempo de espera basado en el servidor - se calcula dinámicamente
+    const [timeLeft, setTimeLeft] = React.useState(180);
+    const [roomCreatedAt, setRoomCreatedAt] = React.useState(null);
     const [copied, setCopied] = React.useState(false);
     const [matchmakingAttempted, setMatchmakingAttempted] = React.useState(false);
     const [showJoinByCode, setShowJoinByCode] = React.useState(false);
@@ -673,6 +675,75 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
             console.error('Error cargando salas disponibles:', e);
         }
     };
+
+    // Recuperación de sesión del lobby - ejecutar antes del matchmaking
+    React.useEffect(() => {
+        if (currentRoom || matchmakingInProgress.current) return;
+
+        const restoreLobbySession = async () => {
+            const savedLobby = localStorage.getItem('lga_lobby_session');
+            if (savedLobby) {
+                try {
+                    const lobbyData = JSON.parse(savedLobby);
+                    const now = Date.now();
+                    const MAX_AGE_MS = 5 * 60 * 1000; // 5 minutos máximo
+
+                    if (now - lobbyData.timestamp < MAX_AGE_MS && lobbyData.roomId) {
+                        console.log('[DEBUG] Intentando recuperar sesión del lobby:', lobbyData.roomId);
+
+                        // Verificar si la sala aún existe y está en espera
+                        const { data: room } = await supabase
+                            .from('rooms')
+                            .select('*')
+                            .eq('id', lobbyData.roomId)
+                            .eq('status', 'waiting')
+                            .single();
+
+                        if (room) {
+                            console.log('[DEBUG] Sala recuperada exitosamente:', room.code);
+                            setCurrentRoom(room);
+                            setRoomCreatedAt(new Date(room.created_at).getTime());
+
+                            // Recargar jugadores de la sala
+                            const { data: roomPlayers } = await supabase
+                                .from('players_online')
+                                .select('*')
+                                .eq('room_id', room.id)
+                                .order('id', { ascending: true });
+
+                            if (roomPlayers) {
+                                const uniquePlayers = [];
+                                const seenUserIds = new Set();
+                                for (const player of roomPlayers) {
+                                    if (!seenUserIds.has(player.user_id)) {
+                                        seenUserIds.add(player.user_id);
+                                        uniquePlayers.push(player);
+                                    }
+                                }
+                                setPlayers(uniquePlayers);
+                                console.log('[DEBUG] Jugadores recuperados:', uniquePlayers.length);
+                            }
+
+                            setMatchmakingAttempted(true);
+                            setLoading(false);
+                            return true;
+                        } else {
+                            console.log('[DEBUG] Sala ya no existe o ya inició, limpiando sesión');
+                            localStorage.removeItem('lga_lobby_session');
+                        }
+                    } else {
+                        localStorage.removeItem('lga_lobby_session');
+                    }
+                } catch (e) {
+                    console.error('[DEBUG] Error recuperando sesión del lobby:', e);
+                    localStorage.removeItem('lga_lobby_session');
+                }
+            }
+            return false;
+        };
+
+        restoreLobbySession();
+    }, []);
 
     // Matchmaking automático al entrar
     React.useEffect(() => {
@@ -834,6 +905,14 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                 if (joinedRoom) {
                     setCurrentRoom(joinedRoom);
                     setRoomCode(joinedRoom.code);
+                    setRoomCreatedAt(new Date(joinedRoom.created_at).getTime());
+
+                    // Guardar sesión del lobby para recuperación
+                    localStorage.setItem('lga_lobby_session', JSON.stringify({
+                        roomId: joinedRoom.id,
+                        code: joinedRoom.code,
+                        timestamp: Date.now()
+                    }));
                 } else {
                     // No hay salas disponibles, crear una
                     setLoadingMessage('Creando nueva sala...');
@@ -931,6 +1010,15 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
 
             setCurrentRoom(room);
             setRoomCode(code);
+            setRoomCreatedAt(new Date(room.created_at).getTime());
+
+            // Guardar sesión del lobby para recuperación
+            localStorage.setItem('lga_lobby_session', JSON.stringify({
+                roomId: room.id,
+                code: code,
+                timestamp: Date.now()
+            }));
+
             return room;
         } catch (error) {
             console.error('Error al crear sala:', error);
@@ -939,41 +1027,54 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
         }
     };
 
-    // Timer y lógica de inicio automático
+    // Guardar roomCreatedAt cuando se crea/une a una sala
     React.useEffect(() => {
-        if (!currentRoom) return;
+        if (currentRoom?.created_at) {
+            setRoomCreatedAt(new Date(currentRoom.created_at).getTime());
+        }
+    }, [currentRoom?.id]);
+
+    // Timer y lógica de inicio automático - SINCRONIZADO CON SERVIDOR
+    React.useEffect(() => {
+        if (!currentRoom || !roomCreatedAt) return;
+
+        const WAIT_TIME_MS = 3 * 60 * 1000; // 3 minutos en ms
 
         const timer = setInterval(() => {
-            setTimeLeft(prev => {
-                const playerCount = players.length;
+            const now = Date.now();
+            const elapsed = now - roomCreatedAt;
+            const remaining = Math.max(0, Math.ceil((WAIT_TIME_MS - elapsed) / 1000));
 
-                // Si llegamos a 4 jugadores → iniciar inmediatamente
-                if (playerCount >= 4) {
-                    clearInterval(timer);
-                    startOnlineGame();
-                    return 0;
+            setTimeLeft(remaining);
+
+            const playerCount = players.length;
+
+            // Solo el anfitrión puede iniciar la partida automáticamente
+            const isHost = players.length > 0 && players[0]?.user_id === user?.id;
+
+            // Si llegamos a 4 jugadores → iniciar inmediatamente (solo anfitrión)
+            if (playerCount >= 4 && isHost) {
+                clearInterval(timer);
+                startOnlineGame();
+                return;
+            }
+
+            // Si el tiempo llegó a 0
+            if (remaining <= 0) {
+                clearInterval(timer);
+                if (playerCount === 1) {
+                    // Solo el anfitrión, ir a partida local
+                    if (isHost) startLocalGameWithAI();
+                } else if (playerCount >= 2) {
+                    // 2-3 jugadores, iniciar (solo anfitrión)
+                    if (isHost) startOnlineGame();
                 }
-
-                // Si hay 2-3 jugadores, seguir esperando hasta 3 minutos
-                // Si hay solo 1 jugador, esperar 3 minutos y luego ir a local
-                if (prev <= 1) {
-                    clearInterval(timer);
-                    if (playerCount === 1) {
-                        // Solo el anfitrión, ir a partida local
-                        startLocalGameWithAI();
-                    } else {
-                        // 2-3 jugadores, iniciar de todos modos
-                        startOnlineGame();
-                    }
-                    return 0;
-                }
-
-                return prev - 1;
-            });
+                return;
+            }
         }, 1000);
 
         return () => clearInterval(timer);
-    }, [currentRoom, players.length]);
+    }, [currentRoom, players.length, roomCreatedAt, user?.id]);
 
     // Iniciar partida online (2-4 jugadores)
     const startOnlineGame = () => {
@@ -1062,6 +1163,8 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
             console.log('[DEBUG] gameConfig:', gameConfig);
 
             console.log('[DEBUG] Llamando a onStartGame...');
+            // Limpiar sesión del lobby al iniciar el juego
+            localStorage.removeItem('lga_lobby_session');
             onStartGame(gamePlayers, gameConfig);
             console.log('[DEBUG] onStartGame completado');
 
@@ -1236,7 +1339,15 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
             setPlayers(existingPlayers ? [...existingPlayers, joinedPlayer] : [joinedPlayer]);
 
             setCurrentRoom(room);
+            setRoomCreatedAt(new Date(room.created_at).getTime());
             setShowJoinByCode(false);
+
+            // Guardar sesión del lobby para recuperación
+            localStorage.setItem('lga_lobby_session', JSON.stringify({
+                roomId: room.id,
+                code: room.code,
+                timestamp: Date.now()
+            }));
         } catch (error) {
             console.error('Error al unirse:', error);
             alert('No se pudo unir a la sala');
@@ -1256,6 +1367,8 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                 await supabase.from('rooms').delete().eq('id', currentRoom.id);
             }
         }
+        // Limpiar sesión del lobby al salir
+        localStorage.removeItem('lga_lobby_session');
         setActiveScreen('inicio');
     };
 
@@ -1395,8 +1508,14 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
         const isFull = players.length >= 4;
         const isAlone = players.length === 1;
         // Solo el anfitrión (primer jugador en la sala) puede iniciar la partida
-        const isHost = players.length > 0 && players[0]?.user_id === user?.id;
+        // Ordenar jugadores por ID para asegurar consistencia
+        const sortedPlayers = [...players].sort((a, b) => a.id?.localeCompare(b.id));
+        const firstPlayer = sortedPlayers[0];
+        const isHost = firstPlayer?.user_id === user?.id;
         const canStart = players.length >= 2 && isHost;
+
+        // Debug para verificar identificación del anfitrión
+        console.log('[DEBUG] Lobby - Jugadores:', players.length, 'Primer jugador:', firstPlayer?.name, 'user?.id:', user?.id, 'isHost:', isHost);
 
         return (
             <div id="lobbyOnline" className="screen active">
@@ -1564,7 +1683,7 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                                         <span className="player-status">
                                             {player.is_ready ? '✓ Listo' : '...'}
                                         </span>
-                                        {idx === 0 && <span className="host-badge">Anfitrión</span>}
+                                        {player.user_id === firstPlayer?.user_id && <span className="host-badge">Anfitrión</span>}
                                     </div>
                                 ))}
                                 {Array.from({ length: 4 - players.length }).map((_, idx) => (
@@ -1596,7 +1715,7 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                                 {!canStart && players.length >= 2 && !isFull && !isHost && (
                                     <p className="lobby-message">
                                         Sala con {players.length} jugadores listos.<br/>
-                                        Esperando a que el anfitrión ({players[0]?.name}) inicie la partida...
+                                        Esperando a que el anfitrión ({firstPlayer?.name}) inicie la partida...
                                     </p>
                                 )}
                             </div>

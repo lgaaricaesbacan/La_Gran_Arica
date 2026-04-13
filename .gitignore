@@ -25,3 +25,7 @@ Thumbs.db
 # Variables de entorno locales
 .env
 .env.local
+
+# Carpetas de control local
+handovers/
+sql_scripts/
