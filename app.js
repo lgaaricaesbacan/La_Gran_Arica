@@ -676,11 +676,12 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
         }
     };
 
-    // Recuperación de sesión del lobby - ejecutar antes del matchmaking
+    // Recuperación de sesión del lobby + Matchmaking automático
     React.useEffect(() => {
-        if (currentRoom || matchmakingInProgress.current) return;
+        if (matchmakingAttempted || currentRoom || matchmakingInProgress.current) return;
 
-        const restoreLobbySession = async () => {
+        const attemptRecoveryAndMatchmaking = async () => {
+            // Primero intentar recuperar sesión existente
             const savedLobby = localStorage.getItem('lga_lobby_session');
             if (savedLobby) {
                 try {
@@ -703,13 +704,14 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                             console.log('[DEBUG] Sala recuperada exitosamente:', room.code);
                             setCurrentRoom(room);
                             setRoomCreatedAt(new Date(room.created_at).getTime());
+                            setRoomCode(room.code);
 
                             // Recargar jugadores de la sala
                             const { data: roomPlayers } = await supabase
                                 .from('players_online')
                                 .select('*')
                                 .eq('room_id', room.id)
-                                .order('id', { ascending: true });
+                                .order('created_at', { ascending: true });
 
                             if (roomPlayers) {
                                 const uniquePlayers = [];
@@ -726,7 +728,7 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
 
                             setMatchmakingAttempted(true);
                             setLoading(false);
-                            return true;
+                            return;
                         } else {
                             console.log('[DEBUG] Sala ya no existe o ya inició, limpiando sesión');
                             localStorage.removeItem('lga_lobby_session');
@@ -739,15 +741,10 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                     localStorage.removeItem('lga_lobby_session');
                 }
             }
-            return false;
+
+            // Si no se recuperó sesión, hacer matchmaking normal
+            await attemptMatchmaking();
         };
-
-        restoreLobbySession();
-    }, []);
-
-    // Matchmaking automático al entrar
-    React.useEffect(() => {
-        if (matchmakingAttempted || currentRoom || matchmakingInProgress.current) return;
 
         const attemptMatchmaking = async () => {
             // Evitar ejecuciones simultáneas
@@ -949,13 +946,14 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
             console.log('Jugador ya está en sala existente, recuperando:', existingMembership);
             setCurrentRoom(existingMembership.rooms);
             setRoomCode(existingMembership.rooms.code);
+            setRoomCreatedAt(new Date(existingMembership.rooms.created_at).getTime());
 
             // Cargar jugadores de esa sala
             const { data: playersInRoom } = await supabase
                 .from('players_online')
                 .select('*')
                 .eq('room_id', existingMembership.room_id)
-                .order('id', { ascending: true });
+                .order('created_at', { ascending: true });
 
             if (playersInRoom) {
                 setPlayers(playersInRoom);
@@ -1508,8 +1506,12 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
         const isFull = players.length >= 4;
         const isAlone = players.length === 1;
         // Solo el anfitrión (primer jugador en la sala) puede iniciar la partida
-        // Ordenar jugadores por ID para asegurar consistencia
-        const sortedPlayers = [...players].sort((a, b) => a.id?.localeCompare(b.id));
+        // Ordenar jugadores por created_at para asegurar orden de llegada (más antiguo primero)
+        const sortedPlayers = [...players].sort((a, b) => {
+            const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+            const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+            return dateA - dateB;
+        });
         const firstPlayer = sortedPlayers[0];
         const isHost = firstPlayer?.user_id === user?.id;
         const canStart = players.length >= 2 && isHost;
@@ -1651,14 +1653,13 @@ const PantallaLobbyOnline = React.memo(({ activeScreen, setActiveScreen, user, o
                             )}
                         </div>
 
-                        {canStart && !isFull && (
-                            <div className="lobby-timer waiting">
-                                Esperando jugadores: {formatTime(timeLeft)}
-                            </div>
-                        )}
-                        {isAlone && (
-                            <div className="lobby-timer alone">
-                                Buscando jugadores: {formatTime(timeLeft)}
+                        {/* Temporizador visible para todos los jugadores en el lobby */}
+                        {!isFull && (
+                            <div className={`lobby-timer ${isAlone ? 'alone' : 'waiting'}`}>
+                                {isAlone ? 'Buscando jugadores' : 'Esperando jugadores'}: {formatTime(timeLeft)}
+                                {!isHost && players.length >= 2 && (
+                                    <span className="host-waiting-msg"> (esperando al anfitrión)</span>
+                                )}
                             </div>
                         )}
                         {isFull && (
